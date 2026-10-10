@@ -166,6 +166,16 @@ class TestGenerate:
     async def test_a_generation_uploads_submits_polls_and_stores_the_artifact(self, tmp_path: Path):
         """端到端一条：素材回填 → 提交 → 轮询 → 产物落到 output_path，溯源随结果回来。"""
         definition = _with_image_bindings()
+        definition["workflow"]["13"] = {
+            "class_type": "MotionContext",
+            "inputs": {"shot_cur_seq": 99, "shot_pre_seq": 98},
+        }
+        definition["bindings"]["shot_cur_seq"] = [
+            {"node": "13", "input": "shot_cur_seq", "class_type": "MotionContext"}
+        ]
+        definition["bindings"]["shot_pre_seq"] = [
+            {"node": "13", "input": "shot_pre_seq", "class_type": "MotionContext"}
+        ]
         start = tmp_path / "first.png"
         start.write_bytes(b"png-bytes")
         reference = tmp_path / "ref.jpg"
@@ -192,7 +202,13 @@ class TestGenerate:
             view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend(definition).generate(
-                _request(tmp_path, start_image=start, reference_images=[reference])
+                _request(
+                    tmp_path,
+                    start_image=start,
+                    reference_images=[reference],
+                    shot_cur_seq=3,
+                    shot_pre_seq=2,
+                )
             )
 
         assert result.video_path.read_bytes() == MP4_BYTES
@@ -204,6 +220,8 @@ class TestGenerate:
         submitted = request_json(submit.calls.last.request)["prompt"]
         assert submitted["10"]["inputs"]["image"] == "arcreel/task-7-start_image.png"
         assert submitted["11"]["inputs"]["image"] == "arcreel/task-7-reference_images-1.jpg"
+        assert submitted["13"]["inputs"]["shot_cur_seq"] == 3
+        assert submitted["13"]["inputs"]["shot_pre_seq"] == 2
         assert request_json(submit.calls.last.request)["client_id"] == "arcreel-task-7"
         assert view.calls.last.request.url.params["filename"] == "final_00001.mp4"
         assert persisted == [

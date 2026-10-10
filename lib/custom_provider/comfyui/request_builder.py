@@ -96,6 +96,8 @@ def build_workflow(
     duration_seconds: float | None = None,
     media: MediaInputs | None = None,
     seed: int | None = None,
+    shot_cur_seq: int | None = None,
+    shot_pre_seq: int | None = None,
     rng: Random | None = None,
 ) -> BuiltWorkflow:
     """按一份 ComfyUI 端点定义与一次生成请求，构造实发 workflow。
@@ -116,6 +118,10 @@ def build_workflow(
     body, avoid_text = split_avoid_lines(prompt)
     _write_all(workflow, _targets(bindings.get("prompt")), body)
     _write_negative_prompt(workflow, bindings.get("negative_prompt"), avoid_text)
+    if shot_cur_seq is not None:
+        _write_all(workflow, _targets(bindings.get("shot_cur_seq")), shot_cur_seq)
+    if shot_pre_seq is not None:
+        _write_all(workflow, _targets(bindings.get("shot_pre_seq")), shot_pre_seq)
     width, height = _write_size(workflow, bindings, aspect_ratio=aspect_ratio, resolution=resolution, media=media_type)
     # 图自己写着片长、而这份片长凑不出一档原生时长时不动帧数：端点对外说的正是「时长不由
     # ArcReel 驱动」（档位为空、界面只读），请求里那个秒数是规划层借的，不是用户选的。

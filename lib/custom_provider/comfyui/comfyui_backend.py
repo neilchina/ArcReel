@@ -109,6 +109,8 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
                 resolution=request.resolution,
                 media=media,
                 seed=request.seed,
+                shot_cur_seq=request.shot_cur_seq,
+                shot_pre_seq=request.shot_pre_seq,
             )
             prompt_id = await self._client.submit_prompt(
                 http,

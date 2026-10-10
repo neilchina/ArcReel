@@ -545,6 +545,18 @@
             "$ref": "#/$defs/seedTarget"
           }
         },
+        "shot_cur_seq": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/writeTarget"
+          }
+        },
+        "shot_pre_seq": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/writeTarget"
+          }
+        },
         "output": {
           "type": "array",
           "items": {

@@ -195,6 +195,21 @@ def test_a_missing_key_is_inferred_from_scratch():
 
 # ---------------------------------------------------------------------------
 # 标题约定
+
+
+def test_motion_context_sequence_ids_are_inferred_from_their_input_names():
+    workflow = sample_workflow("wan21_t2v")
+    workflow["90"] = {
+        "class_type": "MotionContext",
+        "inputs": {"shot_cur_seq": 2, "shot_pre_seq": 1},
+    }
+
+    result = infer_sample("wan21_t2v", workflow=workflow)
+
+    assert landings(result, "shot_cur_seq") == [("90", "shot_cur_seq")]
+    assert landings(result, "shot_pre_seq") == [("90", "shot_pre_seq")]
+
+
 # ---------------------------------------------------------------------------
 
 

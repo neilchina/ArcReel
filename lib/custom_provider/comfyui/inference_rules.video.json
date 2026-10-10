@@ -104,6 +104,12 @@
         "RandomNoise",
         "WanVideoSampler"
       ]
+    },
+    "shot_cur_seq": {
+      "input_names": ["shot_cur_seq"]
+    },
+    "shot_pre_seq": {
+      "input_names": ["shot_pre_seq"]
     }
   },
   "image_loaders": [

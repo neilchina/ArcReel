@@ -296,6 +296,37 @@ class TestSeed:
         assert _inputs(built, "3")["seed"] == 123456
 
 
+class TestShotSequence:
+    @staticmethod
+    def _definition() -> dict[str, Any]:
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["10"] = {
+            "class_type": "MotionContext",
+            "inputs": {"shot_cur_seq": 99, "shot_pre_seq": 98},
+        }
+        definition["bindings"]["shot_cur_seq"] = [
+            {"node": "10", "input": "shot_cur_seq", "class_type": "MotionContext"}
+        ]
+        definition["bindings"]["shot_pre_seq"] = [
+            {"node": "10", "input": "shot_pre_seq", "class_type": "MotionContext"}
+        ]
+        return definition
+
+    def test_integer_ids_are_written_to_the_bound_motion_context_inputs(self):
+        built = _build(self._definition(), shot_cur_seq=3, shot_pre_seq=2)
+
+        assert _inputs(built, "10")["shot_cur_seq"] == 3
+        assert _inputs(built, "10")["shot_pre_seq"] == 2
+        assert type(_inputs(built, "10")["shot_cur_seq"]) is int
+        assert type(_inputs(built, "10")["shot_pre_seq"]) is int
+
+    def test_absent_sequence_context_keeps_the_workflow_literals(self):
+        built = _build(self._definition())
+
+        assert _inputs(built, "10")["shot_cur_seq"] == 99
+        assert _inputs(built, "10")["shot_pre_seq"] == 98
+
+
 class TestAvoidSplit:
     def test_every_avoid_line_is_lifted_out_of_the_body(self):
         built = _build(

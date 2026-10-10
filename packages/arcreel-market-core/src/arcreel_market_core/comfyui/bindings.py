@@ -27,6 +27,12 @@ VIDEO_BINDING_KEYS = (
     "frames",
     "fps",
     "seed",
+    # 一镜到底（H3 motion-context）续镜：当前镜头序号与前一镜序号是整数 ID，可选绑定。
+    # 续接所需的上一段 latent/音频留在 ComfyUI 端由 workflow 自行缓存取用，ArcReel 只把这两个
+    # 序号写进工作流对应的 INT 入口；序号由剧本镜头顺序自动解析（非用户必填），首镜 shot_pre_seq
+    # 写哨兵值 0。
+    "shot_cur_seq",
+    "shot_pre_seq",
     "output",
 )
 

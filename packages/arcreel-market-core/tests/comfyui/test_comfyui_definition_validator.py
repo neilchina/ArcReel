@@ -48,6 +48,19 @@ class TestAcceptedDefinitions:
         assert validate_definition(_image_endpoint()).valid
 
 
+# 序号绑定是视频专属的普通标量写入，不属于图片素材槽位。
+def test_video_shot_sequence_bindings_are_optional_scalar_targets():
+    definition = comfyui_endpoint_definition()
+    definition["workflow"]["10"] = {
+        "class_type": "MotionContext",
+        "inputs": {"shot_cur_seq": 9, "shot_pre_seq": 8},
+    }
+    definition["bindings"]["shot_cur_seq"] = [{"node": "10", "input": "shot_cur_seq", "class_type": "MotionContext"}]
+    definition["bindings"]["shot_pre_seq"] = [{"node": "10", "input": "shot_pre_seq", "class_type": "MotionContext"}]
+
+    assert validate_definition(definition).valid
+
+
 class TestRequiredBindings:
     @pytest.mark.parametrize("key", ["prompt", "output"])
     @pytest.mark.parametrize("state", ["empty", "absent"])
@@ -69,9 +82,11 @@ class TestMediaTypeWhitelist:
             ("end_image", {"node": "4", "input": "ckpt_name", "class_type": "CheckpointLoaderSimple"}),
             ("frames", {"node": "5", "input": "batch_size", "class_type": "EmptyLatentImage"}),
             ("fps", {"node": "9", "input": "fps", "class_type": "SaveVideo", "direction": "read"}),
+            ("shot_cur_seq", {"node": "5", "input": "batch_size", "class_type": "EmptyLatentImage"}),
+            ("shot_pre_seq", {"node": "5", "input": "batch_size", "class_type": "EmptyLatentImage"}),
         ],
     )
-    def test_an_image_endpoint_refuses_the_time_axis_and_frame_keys(self, key: str, target: dict[str, object]):
+    def test_an_image_endpoint_refuses_video_only_bindings(self, key: str, target: dict[str, object]):
         definition = _image_endpoint(**{key: [target]})
 
         assert (f"bindings.{key}", "comfyui_binding_key_not_allowed") in _codes(validate_definition(definition))

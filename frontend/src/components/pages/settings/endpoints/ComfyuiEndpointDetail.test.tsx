@@ -154,8 +154,8 @@ describe("ComfyuiEndpointDetail", () => {
     expect(within(row("start_image")).getByText("未找到")).toBeInTheDocument();
     expect(within(row("end_image")).getByText("不支持")).toBeInTheDocument();
     expect(within(row("output")).getByText("必填未绑定")).toBeInTheDocument();
-    // 没被推断提到的语义键一并算未找到：reference_images、宽、高、帧数、帧率与 output 共 7 项。
-    expect(screen.getByText("已绑定 2 · 需选择 1 · 未找到 7 · 不支持 1")).toBeInTheDocument();
+    // 未被推断提到的语义键一并算未找到：参考图、宽、高、帧数、帧率、两个续镜序号与 output 共 9 项。
+    expect(screen.getByText("已绑定 2 · 需选择 1 · 未找到 9 · 不支持 1")).toBeInTheDocument();
   });
 
   it("opens the tied row on arrival and leaves the settled ones folded", () => {
