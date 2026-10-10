@@ -176,6 +176,36 @@ class TestOneFieldOneBinding:
         assert validate_definition(definition).valid
 
 
+class TestDurationBinding:
+    """``duration`` 是视频专属的直写秒数目标：复用 steppedTarget 形状，与 frames 平行、各写各的。"""
+
+    def test_a_video_definition_with_a_duration_binding_passes(self):
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["duration"] = [
+            {"node": "5", "input": "batch_size", "class_type": "EmptyLatentImage", "step": 4}
+        ]
+
+        assert validate_definition(definition).valid
+
+    def test_a_duration_binding_on_an_image_endpoint_is_refused(self):
+        """图像端点没有时间轴，``duration`` 不在它的白名单里。"""
+        definition = _image_endpoint(duration=[{"node": "5", "input": "batch_size", "class_type": "EmptyLatentImage"}])
+
+        assert (
+            "bindings.duration",
+            "comfyui_binding_key_not_allowed",
+        ) in _codes(validate_definition(definition))
+
+    def test_a_duration_target_colliding_with_another_write_key_is_refused(self):
+        """``duration`` 与 ``width`` 落在同一个 node+input：逐项填值时后写的那条会盖掉先写的。"""
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["duration"] = [{"node": "5", "input": "width", "class_type": "EmptyLatentImage"}]
+
+        codes = _codes(validate_definition(definition))
+
+        assert ("bindings.duration[0].input", "comfyui_target_collision") in codes
+
+
 class TestReferenceImageConsumer:
     """``consumer`` 记的是「这张图接进了谁的哪个入口」，实发构造照它决定改图还是重复填充。"""
 

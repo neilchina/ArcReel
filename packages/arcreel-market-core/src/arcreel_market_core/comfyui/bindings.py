@@ -25,6 +25,10 @@ VIDEO_BINDING_KEYS = (
     "width",
     "height",
     "frames",
+    # 时长（秒）直写目标：把用户要的秒数原样写进节点输入（有 step 则向下对齐），不经 frames 那套
+    # fps 换算。与 frames 平行、各写各的目标：一份 workflow 的时间轴有的用帧数表达、有的直接吃秒，
+    # 两条通道互不干涉，没有谁覆盖谁的互斥规则。
+    "duration",
     "fps",
     "seed",
     # 一镜到底（H3 motion-context）续镜：当前镜头序号与前一镜序号是整数 ID，可选绑定。

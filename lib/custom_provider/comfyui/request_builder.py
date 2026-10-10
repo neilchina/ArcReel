@@ -69,9 +69,10 @@ class MediaInputs:
 class BuiltWorkflow:
     """一次构造的产出：实发 workflow、它的摘要，以及三项换算的落地值。
 
-    ``width`` / ``height`` / ``frames`` / ``seed`` 为 ``None`` 表示该维度没有绑定、值以 workflow
-    字面值为准。端点测试的预览请求按这几项给出换算说明，``dropped_nodes`` 则说明这次改图删掉了
-    哪些节点，故它们与 workflow 一并回传而不是只留在日志里。
+    ``width`` / ``height`` / ``frames`` / ``duration`` / ``seed`` 为 ``None`` 表示该维度没有绑定、
+    值以 workflow 字面值为准。``frames`` 是时长经 fps 换算后落地的帧数，``duration`` 是直写进节点的
+    秒数——两条互不替代，各自回传自己那一维的落地值。端点测试的预览请求按这几项给出换算说明，
+    ``dropped_nodes`` 则说明这次改图删掉了哪些节点，故它们与 workflow 一并回传而不是只留在日志里。
 
     ``negative_prompt`` 是从正文里拆出的排除项文本本身，不是负向节点最终的值——后者还带着
     workflow 作者写在那里的字面值，未绑定负向入口时更是一个字也没写进去。
@@ -83,6 +84,7 @@ class BuiltWorkflow:
     width: int | None = None
     height: int | None = None
     frames: int | None = None
+    duration: int | None = None
     negative_prompt: str = ""
     dropped_nodes: tuple[str, ...] = ()
 
@@ -127,6 +129,10 @@ def build_workflow(
     # ArcReel 驱动」（档位为空、界面只读），请求里那个秒数是规划层借的，不是用户选的。
     driven = None if keeps_its_own_frame_count(definition) else duration_seconds
     frames = _write_frames(workflow, bindings, duration_seconds=driven)
+    # duration 直收原始秒数，不过 keeps_its_own_frame_count 那道开关：那道开关是 frames 专属的「图
+    # 自带帧数、别拿借来的时长改写它」逻辑，围着帧数↔帧率转。duration 是把用户要的秒数直写进节点，
+    # 与「保留自带帧数」无关，故这里绕过 driven、用 duration_seconds 本身。
+    duration = _write_duration(workflow, bindings, duration_seconds=duration_seconds)
     actual_seed = _write_seed(workflow, bindings, requested=seed, rng=rng or Random())
 
     return BuiltWorkflow(
@@ -136,6 +142,7 @@ def build_workflow(
         width=width,
         height=height,
         frames=frames,
+        duration=duration,
         negative_prompt=avoid_text,
         dropped_nodes=dropped,
     )
@@ -304,6 +311,33 @@ def _write_frames(
             continue
         step = step_of(target)
         written = align_frames(round(duration_seconds * fps) + 1, step)
+        _write_one(workflow, target, written)
+    return written
+
+
+# ---------------------------------------------------------------- 时长
+
+
+def _write_duration(
+    workflow: dict[str, Any], bindings: Mapping[str, Any], *, duration_seconds: float | None
+) -> int | None:
+    """把时长（秒）原样写进 ``duration`` 目标，有步长则向下对齐，回传最后写出的值。
+
+    不复用 :func:`~arcreel_market_core.comfyui.bindings.align_frames`：它的下限是 ``1 + step``，那是
+    「首帧 + 若干段间隔」的帧数语义——帧数至少要凑出一个完整步长才合法。秒数没有这层含义，一个
+    8 秒片不该因为步长是 4 就被抬到 9 秒。duration 的对齐就是尺寸那套 :func:`_align_down`：向下对齐
+    到 step 的整数倍、下限一个 step（``step`` 缺省为 1 时等于把整数秒原样写进去）。
+
+    ``duration_seconds`` 为 ``None`` 即这一维不由本次请求驱动（与 :func:`_write_frames` 同样的 guard
+    风格）：workflow 节点里的字面秒数原样留着。
+    """
+    targets = _targets(bindings.get("duration"))
+    if not targets or duration_seconds is None:
+        return None
+    seconds = round(duration_seconds)
+    written: int | None = None
+    for target in targets:
+        written = _align_down(seconds, step_of(target))
         _write_one(workflow, target, written)
     return written
 

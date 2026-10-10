@@ -533,6 +533,12 @@
             "$ref": "#/$defs/framesTarget"
           }
         },
+        "duration": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/steppedTarget"
+          }
+        },
         "fps": {
           "type": "array",
           "items": {

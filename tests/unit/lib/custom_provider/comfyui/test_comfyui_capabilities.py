@@ -183,6 +183,33 @@ class TestSizeIsFixedUnlessBothSidesAreBound:
         assert native_short_edge(definition) == 480
 
 
+class TestDurationIsFixedAcrossBothTimeAxisKeys:
+    """时长可被 ``frames`` 或 ``duration`` 任一维驱动；两条都空才是固定。"""
+
+    def test_only_duration_bound_is_not_fixed(self):
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["duration"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
+
+        assert duration_is_fixed(definition["bindings"]) is False
+
+    def test_only_frames_bound_is_not_fixed(self):
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["frames"] = [_frames_target()]
+
+        assert duration_is_fixed(definition["bindings"]) is False
+
+    def test_neither_bound_is_fixed(self):
+        assert duration_is_fixed(comfyui_endpoint_definition()["bindings"]) is True
+
+    def test_duration_does_not_feed_the_frames_reconstruction(self):
+        """只绑 ``duration`` 时帧数重建那条线仍按「frames 未绑」给空：直写秒不参与帧率反算。"""
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["duration"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
+
+        assert native_duration(definition) is None
+        assert default_supported_durations(definition) == []
+
+
 class TestNativeDurationAndTheDefaultTier:
     def test_frames_and_a_read_only_fps_give_the_workflow_its_own_tier(self):
         """``SaveVideo.fps`` 字面 16、``length`` 字面 81 → ``round((81 − 1) / 16)`` = 5 秒。"""

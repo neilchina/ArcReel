@@ -176,8 +176,19 @@ def native_short_edge(definition: Mapping[str, Any]) -> int | None:
 
 
 def duration_is_fixed(bindings: Mapping[str, Any]) -> bool:
-    """时长这一维 ArcReel 驱动不动：``frames`` 没有绑定，帧数只能是 workflow 的字面值。"""
-    return not targets_of(bindings.get("frames"))
+    """时长这一维 ArcReel 驱动不动：``frames`` 与 ``duration`` 两条通道都没有绑定目标。
+
+    时长能被两种语义键驱动，各走各的填值路径：``frames`` 按时长 × 帧率换算成帧数写回，``duration``
+    把秒数直写进节点输入。任一条有绑定，这一维就是可驱动的——界面放开时长控件、提交时下发时长；
+    两条都空才是「workflow 自己定死片长」，控件禁用。
+
+    frames↔fps↔seconds 的那套重建（:func:`native_duration` / :func:`keeps_its_own_frame_count` /
+    :func:`frame_rate_is_missing` / :func:`default_supported_durations`）特意只认 ``frames``，不把
+    ``duration`` 塞进去：那套逻辑是「从字面帧数 + 帧率反算出一档整秒时长」的逆向换算，整个围着
+    frames↔fps↔seconds 三者转。``duration`` 是直写秒、根本不参与帧率换算，它绑了也不产生「原生档
+    位」可供反算；真要体现 ``duration`` 的默认档，是另一条推导线的事，不该借用帧数重建这条路。
+    """
+    return not (targets_of(bindings.get("frames")) or targets_of(bindings.get("duration")))
 
 
 def frame_rate_is_missing(definition: Mapping[str, Any]) -> bool:

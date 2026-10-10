@@ -243,6 +243,59 @@ class TestFrames:
         assert built.frames is None
 
 
+class TestDuration:
+    """``duration`` 把秒数直写进节点输入，不经 fps 换算；有 step 则向下对齐到步长整数倍。"""
+
+    @staticmethod
+    def _with_duration(**extra: Any) -> dict[str, Any]:
+        """绑一个 ``duration`` 目标到独立字段 ``9.length``，避开 width/height/seed 的既有落点。"""
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["9"]["inputs"]["length"] = 1
+        definition["bindings"]["duration"] = [{"node": "9", "input": "length", "class_type": "SaveVideo", **extra}]
+        return definition
+
+    def test_the_seconds_are_written_as_is_without_a_step(self):
+        built = _build(self._with_duration(), duration_seconds=5)
+
+        assert built.duration == 5
+        assert _inputs(built, "9")["length"] == 5
+
+    def test_a_fractional_second_is_rounded_to_an_int(self):
+        """直写秒数是整数：11.6 秒取整写 12，没有 frames 那套 ``× fps + 1``。"""
+        built = _build(self._with_duration(), duration_seconds=11.6)
+
+        assert built.duration == 12
+        assert _inputs(built, "9")["length"] == 12
+
+    def test_a_stepped_duration_is_aligned_down_to_a_multiple_of_the_step(self):
+        """10 秒、步长 4：向下对齐到 8，而不是 frames 的 ``+1`` 语义（那会给 9）。"""
+        built = _build(self._with_duration(step=4), duration_seconds=10)
+
+        assert built.duration == 8
+        assert _inputs(built, "9")["length"] == 8
+        assert built.duration % 4 == 0
+
+    def test_a_duration_below_one_step_is_floored_at_one_step(self):
+        """2 秒、步长 4：下限一个 step（4），不是 frames 的 ``1 + step``（那会给 5）。"""
+        built = _build(self._with_duration(step=4), duration_seconds=2)
+
+        assert built.duration == 4
+        assert _inputs(built, "9")["length"] == 4
+
+    def test_a_none_duration_writes_nothing(self):
+        built = _build(self._with_duration(), duration_seconds=None)
+
+        assert built.duration is None
+        assert _inputs(built, "9")["length"] == 1
+
+    def test_an_unbound_duration_key_writes_nothing(self):
+        definition = comfyui_endpoint_definition()
+
+        built = _build(definition, duration_seconds=5)
+
+        assert built.duration is None
+
+
 class TestSeed:
     def test_the_random_policy_rolls_inside_the_thirty_two_bit_range(self):
         built = _build(comfyui_endpoint_definition(), rng=Random(1234))
