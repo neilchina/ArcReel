@@ -139,7 +139,12 @@ describe("bindingKeysFor", () => {
     expect(bindingKeysFor("image")).not.toContain("shot_cur_seq");
     expect(bindingKeysFor("image")).not.toContain("shot_pre_seq");
     expect(bindingKeysFor("image")).toHaveLength(7);
-    expect(bindingKeysFor("video")).toHaveLength(13);
+    expect(bindingKeysFor("video")).toHaveLength(14);
+  });
+
+  it("keeps duration on the video axis only, never on an image endpoint", () => {
+    expect(bindingKeysFor("video")).toContain("duration");
+    expect(bindingKeysFor("image")).not.toContain("duration");
   });
 });
 
