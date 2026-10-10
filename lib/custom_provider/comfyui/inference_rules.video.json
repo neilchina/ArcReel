@@ -86,6 +86,10 @@
         "WanVideoImageToVideoEncode"
       ]
     },
+    "duration": {
+      "input_names": ["duration", "duration_seconds", "seconds", "length_seconds"],
+      "class_types": ["PrimitiveInt", "PrimitiveFloat", "PrimitiveStringMultiline", "PrimitiveString"]
+    },
     "fps": {
       "input_names": ["fps", "frame_rate"],
       "class_types": ["CreateVideo", "VHS_VideoCombine"],
