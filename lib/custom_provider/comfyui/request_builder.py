@@ -121,9 +121,9 @@ def build_workflow(
     _write_all(workflow, _targets(bindings.get("prompt")), body)
     _write_negative_prompt(workflow, bindings.get("negative_prompt"), avoid_text)
     if shot_cur_seq is not None:
-        _write_all(workflow, _targets(bindings.get("shot_cur_seq")), shot_cur_seq)
+        _write_shot_seq(workflow, _targets(bindings.get("shot_cur_seq")), shot_cur_seq)
     if shot_pre_seq is not None:
-        _write_all(workflow, _targets(bindings.get("shot_pre_seq")), shot_pre_seq)
+        _write_shot_seq(workflow, _targets(bindings.get("shot_pre_seq")), shot_pre_seq)
     width, height = _write_size(workflow, bindings, aspect_ratio=aspect_ratio, resolution=resolution, media=media_type)
     # 图自己写着片长、而这份片长凑不出一档原生时长时不动帧数：端点对外说的正是「时长不由
     # ArcReel 驱动」（档位为空、界面只读），请求里那个秒数是规划层借的，不是用户选的。
@@ -191,6 +191,24 @@ def _write_all(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], v
     """
     for target in targets:
         _write_one(workflow, target, value)
+
+
+def _write_shot_seq(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], seq: int) -> None:
+    """把一镜到底的镜头序号写进每个目标，按该目标当前字面值的类型分流 int 与字符串。
+
+    续镜序号本是整数 ID，但有的 workflow 把它绑在 TEXT / PrimitiveString 这类字符串输入上，往字符串
+    输入塞一个 Python int 就是类型不匹配——ComfyUI 端要么直接报错，要么把它当别的东西静默错位。
+    因此按每个目标**当前**的字面值类型决定写法：字面值是 ``str`` 就写 ``str(seq)``，其余一律写原始
+    int ``seq``。
+
+    读不出字面值与非字符串字面值都落到 int 分支：``literal_of`` 返回 ``None`` 的两种情形——目标是
+    连线（本就不该被覆盖）、或该字段根本不存在，加上任何非 str 的字面值（int/number），统一写回整数
+    即保留既有默认整数行为；只有 ``isinstance(literal, str)`` 为真才判成字符串输入，不把别的类型当
+    字符串处理。
+    """
+    for target in targets:
+        literal = _literal(workflow, target)
+        _write_one(workflow, target, str(seq) if isinstance(literal, str) else seq)
 
 
 # ---------------------------------------------------------------- 负向提示词

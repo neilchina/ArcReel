@@ -379,6 +379,50 @@ class TestShotSequence:
         assert _inputs(built, "10")["shot_cur_seq"] == 99
         assert _inputs(built, "10")["shot_pre_seq"] == 98
 
+    def test_a_string_typed_target_receives_the_string_form(self):
+        """目标当前字面值是字符串（TEXT 输入）：写入的是序号的字符串形，而不是 Python int。"""
+        definition = self._definition()
+        definition["workflow"]["10"]["inputs"] = {"shot_cur_seq": "0", "shot_pre_seq": "0"}
+
+        built = _build(definition, shot_cur_seq=3, shot_pre_seq=2)
+
+        assert _inputs(built, "10")["shot_cur_seq"] == "3"
+        assert _inputs(built, "10")["shot_pre_seq"] == "2"
+        assert type(_inputs(built, "10")["shot_cur_seq"]) is str
+        assert type(_inputs(built, "10")["shot_pre_seq"]) is str
+
+    def test_a_link_target_falls_back_to_the_int_form(self):
+        """目标是连线（``literal_of`` 返回 list，非 str）：落回 int 分支，照既有 ``_write_one`` 覆盖语义写 int。"""
+        definition = self._definition()
+        definition["bindings"]["shot_cur_seq"] = [{"node": "6", "input": "clip", "class_type": "CLIPTextEncode"}]
+
+        built = _build(definition, shot_cur_seq=3)
+
+        assert _inputs(built, "6")["clip"] == 3
+        assert type(_inputs(built, "6")["clip"]) is int
+
+    def test_an_absent_input_falls_back_to_the_int_form(self):
+        """节点在图里但该 input 不存在（``literal_of`` 返回 None，非 str）：落回 int 分支写 int。"""
+        definition = self._definition()
+        definition["bindings"]["shot_cur_seq"] = [
+            {"node": "5", "input": "shot_cur_seq", "class_type": "EmptyLatentImage"}
+        ]
+
+        built = _build(definition, shot_cur_seq=3)
+
+        assert _inputs(built, "5")["shot_cur_seq"] == 3
+        assert type(_inputs(built, "5")["shot_cur_seq"]) is int
+
+    def test_the_zero_sentinel_survives_str_conversion_on_a_string_target(self):
+        """首镜哨兵 0 绑在字符串输入上：``str(0)`` 得 ``"0"``，不被当成假值丢掉。"""
+        definition = self._definition()
+        definition["workflow"]["10"]["inputs"] = {"shot_cur_seq": "0", "shot_pre_seq": "0"}
+
+        built = _build(definition, shot_pre_seq=0)
+
+        assert _inputs(built, "10")["shot_pre_seq"] == "0"
+        assert type(_inputs(built, "10")["shot_pre_seq"]) is str
+
 
 class TestAvoidSplit:
     def test_every_avoid_line_is_lifted_out_of_the_body(self):
