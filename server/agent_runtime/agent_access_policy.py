@@ -568,6 +568,33 @@ class AgentAccessPolicy:
             "/private/tmp/claude-",
         )
 
+    # resume + store-backed 物化专用的 tmp 根前缀，比 ``_sdk_tmp_prefixes`` 的泛
+    # ``claude-`` 收窄为 ``claude-resume-``：SDK 仅在 store-backed resume/continue 下
+    # 用 ``tempfile.mkdtemp(prefix="claude-resume-")`` 物化临时 CLAUDE_CONFIG_DIR
+    # （见 SDK ``_internal/session_resume.py::materialize_resume_session``），tool-results
+    # 落到 ``<tmp>/claude-resume-<随机>/projects/<project_key>/<uuid-session>/tool-results/``。
+    # 收窄前缀把 SDK 后台任务 tmp 目录（``claude-*/tasks``，另有 ``_sdk_tmp_prefixes`` 例外覆盖）
+    # 排除在 resume 例外之外，避免误纳。``resolved`` 已 ``.resolve()`` 过（macOS ``/var↔
+    # /private/var``、``/tmp↔/private/tmp`` 为 symlink），raw + resolve 两形态都列出防 startswith 失配。
+    @functools.cached_property
+    def _sdk_resume_tmp_prefixes(self) -> tuple[str, ...]:
+        _tempdir = Path(tempfile.gettempdir())
+        return (
+            str(_tempdir / "claude-resume-"),
+            str(_tempdir.resolve() / "claude-resume-"),
+            "/tmp/claude-resume-",
+            "/private/tmp/claude-resume-",
+        )
+
+    # SDK 会话 id 的 UUID 口径（与 SDK ``_internal/sessions.py::_UUID_RE`` 等价）：
+    # resume 临时树里 ``projects/<project_key>/<uuid-session>/tool-results/`` 的 session 段
+    # 须形如 UUID，才接受为 resume 例外。本地复刻一份正则、不 import SDK 内部符号，
+    # 保持本模块零 SDK 依赖（见 test_policy_module_does_not_import_sdk_types）。
+    _SDK_SESSION_UUID_RE: ClassVar["re.Pattern[str]"] = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        re.IGNORECASE,
+    )
+
     @functools.cached_property
     def _claude_projects_dir_resolved(self) -> Path | None:
         """已 resolve 的 ``claude_projects_dir`` 基准目录（实例内算一次缓存）。
@@ -589,11 +616,64 @@ class AgentAccessPolicy:
             return None
 
     @staticmethod
-    def encode_sdk_project_path(project_cwd: Path) -> str:
-        """Encode a project cwd the same way the SDK does for session storage:
-        replace ``/`` and ``.`` with ``-``.
+    def encode_sdk_project_path(project_cwd: Path) -> str | None:
+        """把项目 cwd 编码成 SDK 存会话数据用的 project_key 目录名。
+
+        复用 ``lib.agent.agent_session_store.make_project_key``（SDK 公开的
+        ``project_key_for_directory`` 的薄封装：``_sanitize_path(NFC(realpath(cwd)))``），
+        与 SDK 子进程实际写入的目录名逐字节一致——旧实现只 ``replace`` ``/`` 与 ``.``
+        两字符，在下划线/空格/超长路径下与 SDK 编码分叉，会让 tool-results 例外失配。
+
+        import 放在函数内（``make_project_key`` 内部亦为局部 import SDK），保持本模块
+        顶层零 SDK 依赖。SDK 缺失（``make_project_key`` 抛 ``ImportError``）时返回 None，
+        调用方据此跳过所有 tool-results 例外、落到更严格拒绝（fail-closed），不冒泡中断。
         """
-        return project_cwd.as_posix().replace("/", "-").replace(".", "-")
+        from lib.agent.agent_session_store import make_project_key
+
+        try:
+            return make_project_key(project_cwd)
+        except ImportError:
+            logger.warning("SDK 缺失,无法算 project_key,tool-results 例外跳过(fail-closed)")
+            return None
+
+    def _is_resume_tool_results_path(self, resolved: Path, project_cwd: Path, encoded: str | None) -> bool:
+        """已 resolve 的路径是否为「当前会话、当前项目」在 resume 临时基准下的合法 SDK tool-results。
+
+        store-backed resume/continue 时，SDK 把会话 transcript 物化到自建的临时
+        ``CLAUDE_CONFIG_DIR``（``<tmp>/claude-resume-<随机>/``），子进程把 tool-results
+        写到 ``<tmp>/claude-resume-<随机>/projects/<project_key>/<uuid-session>/tool-results/``。
+        该临时基准不在 ``~/.claude/projects`` 下，故现有 tool-results 例外失配、合法读取被误拒。
+        这里按 SDK 临时树的稳定结构精确放行，同时对真正的外部路径仍 fail-closed。
+
+        必须同时满足全部条件，缺一不放行（绝不放宽成「路径任意位置含 tool-results 即放行」）：
+
+        1. 以 ``_sdk_resume_tmp_prefixes`` 之一开头（专指 SDK 自建的 ``claude-resume-``
+           目录，排除任意 ``$TMPDIR`` 与泛 ``claude-`` 后台任务目录）；
+        2. 路径段里有 ``projects`` 段，其后紧跟的 encoded 段**精确等于**当前项目的
+           ``make_project_key(project_cwd)``（锁定当前项目，杜绝跨项目/跨用户）；
+        3. encoded 段之后紧跟一段形如 UUID 的 session 段（``_SDK_SESSION_UUID_RE``）；
+        4. session 段之后出现 ``tool-results`` 段。
+
+        ``encoded`` 为 None（SDK 缺失）或任何索引/解析异常 → 返回 False（fail-closed），
+        不冒泡中断工具调用。``resolved`` 已 ``.resolve()``（防 symlink 终点绕过），前缀含
+        resolve 变体保持同口径。
+        """
+        if encoded is None:
+            return False
+        try:
+            if not str(resolved).startswith(self._sdk_resume_tmp_prefixes):
+                return False
+            parts = resolved.parts
+            projects_idx = parts.index("projects")
+            # 结构须为 projects/<encoded>/<uuid-session>/.../tool-results/...
+            if parts[projects_idx + 1] != encoded:
+                return False
+            session_seg = parts[projects_idx + 2]
+            if self._SDK_SESSION_UUID_RE.match(session_seg) is None:
+                return False
+            return "tool-results" in parts[projects_idx + 3 :]
+        except (ValueError, IndexError):
+            return False
 
     def _check_read_access(
         self, resolved: Path, project_cwd: Path, *, user_id: str, is_search: bool
@@ -617,11 +697,17 @@ class AgentAccessPolicy:
         if resolved.is_relative_to(project_cwd):
             return True, None
         # SDK tool-results 例外（已 resolve 的基准见 _claude_projects_dir_resolved）。
+        # encoded 为 None（SDK 缺失）时跳过——fail-closed，不放行任何 tool-results。
         claude_projects_dir = self._claude_projects_dir_resolved
-        if claude_projects_dir is not None:
-            sdk_project_dir = claude_projects_dir / self.encode_sdk_project_path(project_cwd)
+        encoded = self.encode_sdk_project_path(project_cwd)
+        if claude_projects_dir is not None and encoded is not None:
+            sdk_project_dir = claude_projects_dir / encoded
             if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
                 return True, None
+        # resume + store-backed 物化出的临时基准下的 tool-results 例外（覆盖非 resume
+        # 之外的 resume 场景，见 _is_resume_tool_results_path）。
+        if self._is_resume_tool_results_path(resolved, project_cwd, encoded):
+            return True, None
         # SDK 后台任务输出例外（前缀计算见 _sdk_tmp_prefixes，实例内缓存一次）。
         if str(resolved).startswith(self._sdk_tmp_prefixes) and "tasks" in resolved.parts:
             return True, None
