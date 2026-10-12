@@ -11,6 +11,7 @@ from openai import OpenAI
 
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.backends.proxy_bypass import genai_client_args, openai_proxy_http_client
 from lib.config.anthropic_probe import anthropic_auth_headers
 from lib.config.url_utils import anthropic_endpoint_url, validate_anthropic_base_url
 from lib.custom_provider.endpoints import endpoint_to_media_type, infer_endpoint
@@ -51,7 +52,13 @@ async def _discover_openai(base_url: str | None, api_key: str) -> list[dict]:
     def _sync():
         from lib.config.url_utils import ensure_openai_base_url
 
-        client = OpenAI(api_key=api_key, base_url=ensure_openai_base_url(base_url))
+        effective_url = ensure_openai_base_url(base_url)
+        # base_url 内网时注入绕系统代理的 http_client（内网兼容端点如 192.168.5.149:8001 不被代理
+        # 劫持回 502）；公网 / 判不准时为 None，不传 http_client、维持 SDK 默认走系统代理。
+        http_client = openai_proxy_http_client(effective_url)
+        client = OpenAI(
+            api_key=api_key, base_url=effective_url, **({"http_client": http_client} if http_client else {})
+        )
         raw_models = client.models.list()
         models = sorted(raw_models, key=lambda m: m.id)
         return _build_result_list([(m.id, infer_endpoint(m.id, "openai")) for m in models])
@@ -66,7 +73,14 @@ async def _discover_google(base_url: str | None, api_key: str) -> list[dict]:
         kwargs: dict = {"api_key": api_key}
         effective_url = ensure_google_base_url(base_url) if base_url else None
         if effective_url:
-            kwargs["http_options"] = {"base_url": effective_url}
+            http_options: dict = {"base_url": effective_url}
+            # base_url 内网时让 genai 内部 httpx client 对该 host 绕系统代理（client_args 原样透传
+            # 给内部 client）；公网 / 判不准时不加 client_args、维持 SDK 默认。官方
+            # generativelanguage.googleapis.com 判公网，零改动。
+            client_args = genai_client_args(effective_url)
+            if client_args is not None:
+                http_options["client_args"] = client_args
+            kwargs["http_options"] = http_options
         client = genai.Client(**kwargs)
         raw_models = client.models.list()
 
@@ -108,7 +122,7 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
     """
     normalized = validate_anthropic_base_url(base_url or "https://api.anthropic.com")
     url = anthropic_endpoint_url(normalized, "/v1/models")
-    async with artifact_http_client(timeout=_DISCOVERY_TIMEOUT_SECONDS) as client:
+    async with artifact_http_client(timeout=_DISCOVERY_TIMEOUT_SECONDS, bypass_proxy_for=normalized) as client:
         resp = await client.get(url, headers=anthropic_auth_headers(api_key))
         if resp.status_code == 401:
             # 部分网关（火山方舟）只认 Authorization: Bearer，对 x-api-key 一律 401

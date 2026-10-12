@@ -1197,9 +1197,15 @@ def _check_openai(
     """通过 models.list() 验证 OpenAI 兼容 API。"""
     from openai import OpenAI
 
+    from lib.backends.proxy_bypass import openai_proxy_http_client
     from lib.config.url_utils import ensure_openai_base_url
 
-    client = (client_factory or OpenAI)(api_key=api_key, base_url=ensure_openai_base_url(base_url))
+    effective_url = ensure_openai_base_url(base_url)
+    # base_url 内网时注入绕系统代理的 http_client（8001 这类自建兼容端点不被代理劫持回 502）；
+    # 公网 / 判不准时为 None，不传 http_client、维持 SDK 默认走系统代理。
+    http_client = openai_proxy_http_client(effective_url)
+    extra = {"http_client": http_client} if http_client else {}
+    client = (client_factory or OpenAI)(api_key=api_key, base_url=effective_url, **extra)
     models = client.models.list()
     count = sum(1 for _ in models)
     return ConnectivityCheckResponse(
@@ -1219,10 +1225,17 @@ def _check_google(
     """通过 models.list() 验证 Google genai API。"""
     from google import genai
 
+    from lib.backends.proxy_bypass import genai_client_args
     from lib.config.url_utils import ensure_google_base_url
 
     effective_url = ensure_google_base_url(base_url)
     http_options: genai.types.HttpOptionsDict | None = {"base_url": effective_url} if effective_url else None
+    # base_url 内网时让 genai 内部 httpx client 对该 host 绕系统代理；公网 / 判不准时不加
+    # client_args、维持 SDK 默认。
+    if http_options is not None:
+        client_args = genai_client_args(effective_url)
+        if client_args is not None:
+            http_options["client_args"] = client_args
     client = (client_factory or genai.Client)(api_key=api_key, http_options=http_options)
     pager = client.models.list()
     count = sum(1 for _ in pager)
@@ -1257,7 +1270,7 @@ async def _check_comfyui(
     ``_run_connectivity_check`` 的失败出口回显，与上游不可达同一形态。
     """
     url = base_url.strip().rstrip("/") + _COMFYUI_SYSTEM_STATS_PATH
-    async with artifact_http_client(timeout=_CONNECTIVITY_CHECK_TIMEOUT) as client:
+    async with artifact_http_client(timeout=_CONNECTIVITY_CHECK_TIMEOUT, bypass_proxy_for=base_url) as client:
         resp = await client.get(url, headers=_comfyui_probe_headers(api_key))
     raise_for_status_redacted(resp)
     payload = resp.json()

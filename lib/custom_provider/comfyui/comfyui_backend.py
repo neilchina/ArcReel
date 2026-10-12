@@ -34,11 +34,11 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationRequest,
     VideoGenerationResult,
 )
-from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import ProviderJobIdPersistenceMixin, notify_provider_response
 from lib.custom_provider.comfyui.capabilities import derive_video_capabilities
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.custom_provider.comfyui.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution, PickedArtifact
+from lib.custom_provider.comfyui.comfyui_http_client import comfyui_http_client
 from lib.custom_provider.comfyui.request_builder import BuiltWorkflow, MediaInputs, build_workflow
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,9 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         job_label = request.task_id or self._job_label or uuid4().hex
-        async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
+        async with comfyui_http_client(
+            timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True, bypass_proxy_for=self._base_url
+        ) as http:
             media = await self._upload_media(http, request, job_label=job_label)
             built = build_workflow(
                 self._definition,
@@ -147,7 +149,9 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         submitted = request.submitted_base_url
         if submitted and submitted != self._base_url:
             return await self._bound_to(submitted).resume_video(job_id, request)
-        async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
+        async with comfyui_http_client(
+            timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True, bypass_proxy_for=self._base_url
+        ) as http:
             picked = await self._execution.fetch_artifact(
                 http,
                 job_id,

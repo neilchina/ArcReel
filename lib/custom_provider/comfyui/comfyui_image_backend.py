@@ -27,7 +27,6 @@ import httpx
 
 from arcreel_market_core.comfyui.bindings import targets_of
 from arcreel_market_core.video_backend_contract import ProviderResponseStage
-from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import notify_provider_response_to
 from lib.backends.image_backends.base import (
     ImageCapability,
@@ -37,6 +36,7 @@ from lib.backends.image_backends.base import (
 from lib.custom_provider.comfyui.capabilities import takes_reference_images
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.custom_provider.comfyui.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution
+from lib.custom_provider.comfyui.comfyui_http_client import comfyui_http_client
 from lib.custom_provider.comfyui.request_builder import MediaInputs, build_workflow
 
 logger = logging.getLogger(__name__)
@@ -113,7 +113,9 @@ class ComfyuiImageBackend:
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         job_label = self._job_label or uuid4().hex
-        async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
+        async with comfyui_http_client(
+            timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True, bypass_proxy_for=self._client.base_url
+        ) as http:
             media = await self._upload_media(http, request, job_label=job_label)
             built = build_workflow(
                 self._definition,
