@@ -125,9 +125,7 @@ class TestOpenaiProxyHttpClient:
 class TestOpenaiAsyncProxyHttpClient:
     """给 AsyncOpenAI 用的异步工厂：与同步版对称，内网返回 AsyncClient、公网返回 None。"""
 
-    def test_private_base_url_returns_async_client_bypassing_proxy(
-        self, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_private_base_url_returns_async_client_bypassing_proxy(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:7890")
         monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:7890")
         client = openai_async_proxy_http_client("http://192.168.5.149:8001/v1")

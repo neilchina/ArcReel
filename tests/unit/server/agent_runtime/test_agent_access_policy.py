@@ -334,9 +334,7 @@ def test_write_protected_via_symlink_scripts_dir_asks(policy: AgentAccessPolicy,
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
-def test_write_protected_with_symlinked_project_cwd_asks(
-    policy: AgentAccessPolicy, tmp_path: Path, tool: str
-) -> None:
+def test_write_protected_with_symlinked_project_cwd_asks(policy: AgentAccessPolicy, tmp_path: Path, tool: str) -> None:
     """project_cwd 本身是个 symlink 指向真实项目目录时(macOS /var↔/private/var、Linux
     symlinked 项目根),`_is_protected_project_json` 要把 base 也按 resolve 一次再拼接 protected
     路径,避免 resolved target 与 raw base 字符串不等 → bypass。"""

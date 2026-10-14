@@ -343,7 +343,9 @@ async def test_projection_passes_the_planned_duration_through_endpoint_fixed_dur
 
 @pytest.mark.asyncio
 async def test_projection_sanitizes_unexpected_capability_failures() -> None:
-    async def _broken_request_facts(generation_type: str, reference_count: int | None = None) -> VideoRequestFactsResult:
+    async def _broken_request_facts(
+        generation_type: str, reference_count: int | None = None
+    ) -> VideoRequestFactsResult:
         del generation_type, reference_count
         raise RuntimeError("database password leaked by driver")
 

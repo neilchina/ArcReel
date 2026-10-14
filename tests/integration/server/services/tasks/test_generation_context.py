@@ -649,9 +649,7 @@ class TestReferenceVideoPerCountSelection:
             "demo",
             None,
             project=project,
-            video=VideoLaneRequest(
-                generation_type="r2v", route="reference_video", reference_count=reference_count
-            ),
+            video=VideoLaneRequest(generation_type="r2v", route="reference_video", reference_count=reference_count),
         )
 
         assert ctx.video.backend_model == expected_model

@@ -525,9 +525,7 @@ async def test_reference_video_family_indexes_by_slot_count_and_excludes_i2v(
 
 
 @pytest.mark.asyncio
-async def test_reference_video_family_skips_disabled_models(
-    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
-):
+async def test_reference_video_family_skips_disabled_models(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch):
     """禁用的候选不进 family——该 N 在选择时会 fail loud。"""
     from lib.custom_provider import make_provider_id, parse_provider_id
     from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
