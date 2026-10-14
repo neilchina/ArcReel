@@ -242,13 +242,21 @@ class ReferenceAssetAvailability(Protocol):
 
 VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
 
-#: 按任务类型桶 × 可用参考图数取视频请求事实。读侧用 :func:`configured_reference_request_facts`，
-#: 执行侧交出 lane 已求得的那一份；测试直接返回构造好的结果对象或失败对象。
-#:
-#: ``reference_count`` 恒以位置参数传入（r2v 单元的可用参考图数，裁剪前；i2v 单元为 0）：r2v
-#: 身份现在依赖 N，读侧据此与执行侧选到同一个 I{N} 端点（``docs/adr/0086``）。只关心 i2v 的
-#: 调用方可省略该参数（生产 projector 恒传）。
-ReferenceRequestFactsLookup = Callable[[VideoGenerationType, int | None], Awaitable[VideoRequestFactsResult]]
+
+class ReferenceRequestFactsLookup(Protocol):
+    """按任务类型桶 × 可用参考图数取视频请求事实。读侧用 :func:`configured_reference_request_facts`，
+    执行侧交出 lane 已求得的那一份；测试直接返回构造好的结果对象或失败对象。
+
+    ``reference_count`` 可缺省（r2v 单元传可用参考图数，裁剪前；i2v 单元为 0 或省略）：r2v
+    身份依赖 N，读侧据此与执行侧选到同一个 I{N} 端点（``docs/adr/0086``）。只关心 i2v 的
+    调用方可省略该参数（生产 projector 恒传）。
+    """
+
+    def __call__(
+        self,
+        generation_type: VideoGenerationType,
+        reference_count: int | None = None,
+    ) -> Awaitable[VideoRequestFactsResult]: ...
 
 
 def configured_reference_request_facts(project: dict, resolver: ConfigResolver) -> ReferenceRequestFactsLookup:

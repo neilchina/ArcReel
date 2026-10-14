@@ -928,12 +928,12 @@ def _check_dashscope(config: dict[str, str], _t: Callable[..., str]) -> Connecti
     from lib.backends.proxy_bypass import openai_proxy_http_client
 
     effective_url = dashscope_text_base_url(config.get("base_url"))
-    # base_url 被改指到内网 / 反代时注入绕系统代理的 http_client；公网时为 None、零改动。
+    # base_url 被改指到内网 / 反代时注入绕系统代理的 http_client；公网时为 None、SDK 默认、零改动。
     http_client = openai_proxy_http_client(effective_url)
     client = OpenAI(
         api_key=config["api_key"],
         base_url=effective_url,
-        **({"http_client": http_client} if http_client is not None else {}),
+        http_client=http_client,
     )
     models = client.models.list()
     available = sorted(m.id for m in models.data if "qwen" in m.id.lower() or "wan" in m.id.lower())
@@ -956,12 +956,12 @@ def _check_minimax(config: dict[str, str], _t: Callable[..., str]) -> Connectivi
     from lib.backends.proxy_bypass import openai_proxy_http_client
 
     effective_url = minimax_text_base_url(config.get("base_url"))
-    # base_url 被改指到内网 / 反代时注入绕系统代理的 http_client；公网时为 None、零改动。
+    # base_url 被改指到内网 / 反代时注入绕系统代理的 http_client；公网时为 None、SDK 默认、零改动。
     http_client = openai_proxy_http_client(effective_url)
     client = OpenAI(
         api_key=config["api_key"],
         base_url=effective_url,
-        **({"http_client": http_client} if http_client is not None else {}),
+        http_client=http_client,
     )
     models = client.models.list()
     available = sorted(m.id for m in models.data if "minimax" in m.id.lower() or "abab" in m.id.lower())

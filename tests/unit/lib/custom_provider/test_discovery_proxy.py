@@ -35,7 +35,7 @@ class _FakeOpenAI:
         type(self).last_kwargs = kwargs
 
         class _Models:
-            def list(self_inner) -> list[_FakeModel]:
+            def list(self) -> list[_FakeModel]:
                 return [_FakeModel("gpt-x")]
 
         self.models = _Models()
@@ -48,7 +48,7 @@ class _FakeGenaiClient:
         type(self).last_http_options = kwargs.get("http_options")
 
         class _Models:
-            def list(self_inner) -> list[_FakeModel]:
+            def list(self) -> list[_FakeModel]:
                 return [_FakeModel("gemini-x")]
 
         self.models = _Models()
@@ -67,7 +67,9 @@ class TestDiscoverOpenaiProxy:
         monkeypatch.setattr(discovery, "OpenAI", _FakeOpenAI)
         _FakeOpenAI.last_kwargs = {}
         await discovery.discover_models(discovery_format="openai", base_url=_PUBLIC_OPENAI, api_key="k")
-        assert "http_client" not in _FakeOpenAI.last_kwargs
+        # 公网 base_url 不注入绕代理 client：http_client 为 None（即 SDK 默认，读系统代理），
+        # 与完全不传等价。
+        assert _FakeOpenAI.last_kwargs.get("http_client") is None
 
 
 class TestDiscoverGoogleProxy:

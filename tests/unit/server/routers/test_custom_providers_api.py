@@ -2071,7 +2071,9 @@ class TestConnectivityProxyBypass:
             return client
 
         custom_providers._check_openai("https://api.openai.com/v1", "sk-x", self._t, client_factory=_factory)
-        assert "http_client" not in captured
+        # 公网 base_url 不注入绕代理 client：http_client 为 None（即 SDK 默认，读系统代理），
+        # 与完全不传等价。
+        assert captured.get("http_client") is None
 
     def test_google_internal_base_url_injects_client_args(self):
         captured: dict[str, Any] = {}

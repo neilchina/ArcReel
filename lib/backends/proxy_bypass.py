@@ -25,11 +25,11 @@ import httpx
 #: - ``127.0.0.0/8``：本机环回。
 #: - ``100.64.0.0/10``：RFC 6598 CGNAT，Tailscale 给节点分配的 ``100.x`` 地址落在此段，必须算内网。
 _PRIVATE_IPV4_NETWORKS: tuple[ipaddress.IPv4Network, ...] = (
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("100.64.0.0/10"),
+    ipaddress.IPv4Network("10.0.0.0/8"),
+    ipaddress.IPv4Network("172.16.0.0/12"),
+    ipaddress.IPv4Network("192.168.0.0/16"),
+    ipaddress.IPv4Network("127.0.0.0/8"),
+    ipaddress.IPv4Network("100.64.0.0/10"),
 )
 
 #: 私有 / 内网 IPv6 网段：
@@ -38,9 +38,9 @@ _PRIVATE_IPV4_NETWORKS: tuple[ipaddress.IPv4Network, ...] = (
 #: - ``fc00::/7``：唯一本地地址（ULA），IPv6 的私网等价物。
 #: - ``fe80::/10``：链路本地地址。
 _PRIVATE_IPV6_NETWORKS: tuple[ipaddress.IPv6Network, ...] = (
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-    ipaddress.ip_network("fe80::/10"),
+    ipaddress.IPv6Network("::1/128"),
+    ipaddress.IPv6Network("fc00::/7"),
+    ipaddress.IPv6Network("fe80::/10"),
 )
 
 #: 判私有的主机名后缀：
@@ -99,7 +99,7 @@ def host_from_base_url(base_url: str | None) -> str | None:
     return host or None
 
 
-def proxy_bypass_mounts(base_url: str | None) -> dict[str, httpx.AsyncBaseTransport | None]:
+def proxy_bypass_mounts(base_url: str | None) -> dict[str, None]:
     """按目标 base_url 给出 httpx ``mounts``：内网目标 → ``{"all://<host>": None}``，否则 ``{}``。
 
     mount 的 key 用不带端口的 ``all://<host>``：对该 host 的所有端口、http / https 都生效，契合

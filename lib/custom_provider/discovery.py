@@ -56,9 +56,7 @@ async def _discover_openai(base_url: str | None, api_key: str) -> list[dict]:
         # base_url 内网时注入绕系统代理的 http_client（内网兼容端点如 192.168.5.149:8001 不被代理
         # 劫持回 502）；公网 / 判不准时为 None，不传 http_client、维持 SDK 默认走系统代理。
         http_client = openai_proxy_http_client(effective_url)
-        client = OpenAI(
-            api_key=api_key, base_url=effective_url, **({"http_client": http_client} if http_client else {})
-        )
+        client = OpenAI(api_key=api_key, base_url=effective_url, http_client=http_client)
         raw_models = client.models.list()
         models = sorted(raw_models, key=lambda m: m.id)
         return _build_result_list([(m.id, infer_endpoint(m.id, "openai")) for m in models])

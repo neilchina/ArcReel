@@ -1204,8 +1204,7 @@ def _check_openai(
     # base_url 内网时注入绕系统代理的 http_client（8001 这类自建兼容端点不被代理劫持回 502）；
     # 公网 / 判不准时为 None，不传 http_client、维持 SDK 默认走系统代理。
     http_client = openai_proxy_http_client(effective_url)
-    extra = {"http_client": http_client} if http_client else {}
-    client = (client_factory or OpenAI)(api_key=api_key, base_url=effective_url, **extra)
+    client = (client_factory or OpenAI)(api_key=api_key, base_url=effective_url, http_client=http_client)
     models = client.models.list()
     count = sum(1 for _ in models)
     return ConnectivityCheckResponse(
