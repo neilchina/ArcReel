@@ -483,7 +483,7 @@ class OptionsAssembler:
                     user_id=self._user_id_provider(),
                 )
                 # 三态映射到 SDK 的 permissionDecision：
-                # DENY → 硬拒（坏输入 / 数据正确性约束）；
+                # DENY → 硬拒（仅无效路径这类坏输入；受保护写入/代码写入等现为 ASK）；
                 # ASK  → 向用户弹窗请求授权，SDK 把 reason 转发到 can_use_tool 的
                 #        decision_reason，由 SessionMan._handle_file_access_request 接住并弹窗；
                 # ALLOW→ 不干预，继续后续权限链（落到下方 continue_）。

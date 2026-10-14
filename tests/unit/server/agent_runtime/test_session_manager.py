@@ -857,11 +857,12 @@ class TestSessionManager:
         assert result.get("continue_") is True
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_blocks_write_non_whitelisted_ext(self, tmp_path, meta_store):
-        """Hook denies Write/Edit for forbidden code extensions in project dir.
+    async def test_file_access_hook_asks_write_non_whitelisted_ext(self, tmp_path, meta_store):
+        """Hook asks (not hard-denies) Write/Edit for forbidden code extensions in project dir.
 
-        New policy: blacklist of code extensions (.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml)
-        instead of data-file whitelist; non-code files (Makefile, .html, .csv) allowed.
+        Option-B policy: code extensions (.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml) now pop an
+        authorization request to the user (permissionDecision 'ask') instead of hard-deny;
+        non-code files (Makefile, .html, .csv) stay allowed.
         """
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
@@ -873,22 +874,22 @@ class TestSessionManager:
 
         hook = mgr._options_assembler._build_file_access_hook(own_project)
 
-        # Write .py in project dir — denied (code extension)
+        # Write .py in project dir — asks (code extension pops authorization request)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "helper.py")}},
             None,
             None,
         )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
         assert ".py" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
-        # Edit .sh in project dir — denied (code extension)
+        # Edit .sh in project dir — asks (code extension pops authorization request)
         result = await hook(
             {"tool_name": "Edit", "tool_input": {"file_path": str(own_project / "run.sh")}},
             None,
             None,
         )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
         # Write 普通 .json — allowed（project.json / scripts/*.json 另由专门 deny 覆盖）
         result = await hook(

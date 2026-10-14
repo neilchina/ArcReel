@@ -42,12 +42,13 @@ class Decision(StrEnum):
     """路径裁决三态——与「硬拒」二态区分开两类不同语义。
 
     - ``ALLOW``：直接放行、不弹窗（当前已可访问的路径，保持原样）。
-    - ``ASK``：向用户弹窗请求授权（批准→放行 / 拒绝→拒绝）。覆盖原本硬拒、但语义是
-      「权限不够、问一下就能放」的分支（跨项目读、数据根内其他条目、搜索根过宽、host
-      文件系统、cwd 外写、数据根外敏感文件）。
-    - ``DENY``：硬拒、不弹窗。只留给两类「不是权限问题」的情形——坏输入（无效路径）与
-      数据正确性/设计约束（受保护写路径 ``PROTECTED_WRITE_RULES``、代码扩展名写入），
-      即便用户点批准也不该放行。
+    - ``ASK``：向用户弹窗请求授权（批准→放行 / 拒绝→拒绝）。覆盖所有「当前权限不够、问一下
+      就能放」的分支——跨项目读、数据根内其他条目、搜索根过宽、host 文件系统、cwd 外写、
+      数据根外敏感文件，以及受保护写路径（``PROTECTED_WRITE_RULES``）与代码扩展名写入。
+      （内核沙箱层对受保护写路径仍硬拒 Bash 子进程，见 ``build_sandbox_settings`` / ADR 0026；
+      hook 层改 ASK 与沙箱层硬拒的不对称是预期。）
+    - ``DENY``：硬拒、不弹窗。只留给一类「不是权限问题」的情形——坏输入（无效路径解析失败），
+      即便用户点批准也无从放行。
 
     用 ``StrEnum`` 便于比较与日志；枚举值字符串是本模块内部口径，不等同 SDK 的
     ``permissionDecision`` 取值——映射到 SDK ``"allow"/"ask"/"deny"`` 由 options_assembler
@@ -77,7 +78,9 @@ class ProtectedWriteRule:
     #: hook 层谓词：``(target, bases) -> 是否命中``。target 由 caller 分别以「逻辑目标」与
     #: 「resolve 后目标」各调一次，bases 为 raw + resolved 两种形式的 project_cwd。
     matches: Callable[[Path, list[Path]], bool]
-    #: hook 层拒绝文案（须指明改用哪条合法通道）。
+    #: hook 层文案（须指明改用哪条合法通道）：现由 hook 层作为 ASK 弹窗的 reason 使用，
+    #: 向用户说明该路径是什么、直改绕过了正规 MCP 工具；字段名保留 ``deny_message`` 不改，
+    #: 避免牵动规则表与 sandbox 投影。
     deny_message: str
     #: sandbox denyWrite 投影：相对 project_cwd base 的子路径（目录即整子树 deny）。
     sandbox_subpaths: tuple[str, ...]
@@ -247,8 +250,9 @@ class AgentAccessPolicy:
         - 读工具（Read/Glob/Grep）→ ``_check_read_access``
 
         三态语义见 ``Decision``：ALLOW 直接放行、ASK 弹窗请求授权、DENY 硬拒。坏输入
-        （无效路径）归 DENY（不是权限问题、不该弹窗）；敏感文件归 ASK（用户要求含敏感
-        文件也走弹窗，``reason`` 回显 resolved 路径供前端强调以降低误批）。
+        （无效路径）是唯一归 DENY 的情形（不是权限问题、不该弹窗）；其余所有需要授权的分支
+        （含敏感文件、受保护写路径、代码扩展名写入）归 ASK，``reason`` 回显 resolved 路径供前端
+        强调以降低误批。
 
         ``user_id`` 与 ``project_cwd`` 同级逐调用传入（用户记忆目录按它派生），
         policy 本身仍是进程级零 I/O 单例、不持有当前用户。
@@ -780,19 +784,25 @@ class AgentAccessPolicy:
         if not in_user_memory and not any(resolved.is_relative_to(base) for base in bases):
             return Decision.ASK, (f"需要授权：项目目录之外的写入请求 ({resolved})")
 
-        # 以下两类维持硬拒（DENY）：不是权限问题，而是数据正确性/设计约束，即便用户点批准也不该放行。
-        # W3 受保护写路径：另有多条持同一把 per-path 锁的合法写入通道，Write/Edit 取不到锁，直改即破坏数据。
+        # 以下两类原本硬拒（DENY），现改为弹窗请求授权（ASK）——属「权限不够、问一下可放」：
+        # 用户要求 Agent 访问未被允许的路径时一律弹窗请求授权，而非被硬拒。reason 仍保留原
+        # deny_message 文案，向用户解释该路径是什么、直改绕过了正规 MCP 工具，但决策变为 ASK，
+        # 用户可批准放行。注意：内核沙箱层（Bash 子进程）对这些写路径仍硬拒（见
+        # build_sandbox_settings denyWrite / ADR 0026），hook 层改 ASK 与沙箱层硬拒的不对称是预期。
+        # W3 受保护写路径：另有多条持同一把 per-path 锁的合法写入通道，Write/Edit 取不到锁，
+        # 直改会破坏数据；弹窗向用户点明风险，批准后由 hook 层放行。
         for rule in self.PROTECTED_WRITE_RULES:
             if any(rule.matches(target, bases) for target in (resolved, logical_norm)):
-                return Decision.DENY, rule.deny_message
+                return Decision.ASK, rule.deny_message
 
-        # W4 代码扩展名：Agent 不写代码（设计约束，Windows 回退无 sandbox denyExec 兜底）。
+        # W4 代码扩展名：Agent 一般不写代码（设计约束，Windows 回退无 sandbox denyExec 兜底）；
+        # 现改为弹窗请求授权，用户可批准这次写入。
         ext = resolved.suffix.lower()
         if ext in self._CODE_EXTENSIONS_FORBIDDEN:
-            return Decision.DENY, (
-                f"不允许在项目内创建/编辑 {ext} 类型的代码文件。"
-                "Write/Edit 应用于数据文件 (.json/.md/.txt 等)；"
-                "代码逻辑请通过现有 skill 脚本完成。"
+            return Decision.ASK, (
+                f"需要授权：在项目内创建/编辑 {ext} 类型的代码文件的请求。"
+                "Write/Edit 一般用于数据文件 (.json/.md/.txt 等)；"
+                "代码逻辑通常应通过现有 skill 脚本完成——确认后将放行本次写入。"
             )
 
         return Decision.ALLOW, None
