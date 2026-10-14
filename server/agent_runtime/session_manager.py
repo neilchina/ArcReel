@@ -562,6 +562,10 @@ class SessionManager:
         "Grep",
         "Glob",
         "WebFetch",
+        # 多步任务进度跟踪：CLAUDE.*.md 系统提示指示 Agent 用 TodoWrite 汇报进度，
+        # 前端 TodoProgress 据此渲染待办进度条——漏加会让 Agent 调用时被 can_use_tool
+        # 白名单兜底拒绝（No such tool available: TodoWrite）。
+        "TodoWrite",
         "AskUserQuestion",
     ]
     DEFAULT_SETTING_SOURCES: ClassVar[list[SettingSource]] = ["project"]
