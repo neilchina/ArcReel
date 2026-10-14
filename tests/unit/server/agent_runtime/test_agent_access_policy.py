@@ -107,6 +107,18 @@ def test_read_other_project_asks(policy: AgentAccessPolicy) -> None:
     assert "跨项目" in reason or "项目" in reason
 
 
+@pytest.mark.parametrize("tool", ["Read", "Write", "Edit", "Glob", "Grep"])
+def test_invalid_path_denies(policy: AgentAccessPolicy, tool: str) -> None:
+    """唯一仍硬拒（DENY）的分支：坏输入——路径字符串解析失败（含 NUL 字节会让
+    Path(...)/resolve() 抛 ValueError）。不是权限问题，不该弹窗请求授权，直接拒。
+    回归守卫：Option B 把其余分支全改 ASK 后，确保这条坏输入分支没被一并改掉。"""
+    cwd = _cwd(policy)
+    decision, reason = policy.check_path_access("bad\x00path.json", tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.DENY, f"{tool} 的无效路径应硬拒，却被判 {decision}"
+    assert reason
+    assert "无效" in reason
+
+
 def test_read_lib_passes(policy: AgentAccessPolicy) -> None:
     """cwd 外的非 projects 路径允许读（用于 Agent 查 docs/lib 等参考资料）。"""
     cwd = _cwd(policy)
