@@ -118,7 +118,10 @@ async def evaluate_reference_unit_capabilities(
             ReferenceUnitCapability(
                 unit_id=str(unit.get("unit_id") or ""),
                 hydration=hydration,
-                request_facts=await request_facts(hydration.hydrated_generation_type),
+                # N 取裁剪前可用参考图数：r2v 单元据此与执行侧选到同一个 I{N}（docs/adr/0086）。
+                request_facts=await request_facts(
+                    hydration.hydrated_generation_type, len(hydration.available_assets)
+                ),
             )
         )
     return tuple(results)

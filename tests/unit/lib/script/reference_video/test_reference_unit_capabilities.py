@@ -50,7 +50,7 @@ class _CountingFacts:
         self.calls: list[str] = []
         self._failures = failures or {}
 
-    async def __call__(self, generation_type: str):
+    async def __call__(self, generation_type: str, reference_count: int | None = None):
         self.calls.append(generation_type)
         if generation_type in self._failures:
             return self._failures[generation_type]
@@ -187,7 +187,7 @@ async def test_endpoint_fixed_bucket_reports_flag_and_reason(tmp_path: Path) -> 
         duration_endpoint_fixed=True,
     )
 
-    async def lookup(_generation_type: str):
+    async def lookup(_generation_type: str, _reference_count: int | None = None):
         return fixed
 
     (capability,) = await evaluate_reference_unit_capabilities(

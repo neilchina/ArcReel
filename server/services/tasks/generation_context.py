@@ -201,10 +201,15 @@ class VideoLaneRequest:
 
     ``route`` 声明时 lane 附带该路线的执行侧视频请求事实（``docs/adr/0086``），能力只经它读取；
     未显式定桶时按项目生成模式定桶解析身份与求值。不声明路线的 lane（续跑按检查点排空）不求值能力。
+
+    ``reference_count`` 是本单元**裁剪前**的可用参考图数：r2v 单元按它在家族内精确选 I{N}
+    端点（``docs/adr/0054``）。None 表示不按 N 选（i2v / 续跑排空 / 非家族），走原
+    ``resolve_video_backend``。
     """
 
     generation_type: VideoGenerationType | None = None
     route: VideoRoute | None = None
+    reference_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -389,7 +394,19 @@ async def resolve_generation_context(
             generation_type = video.generation_type
             if generation_type is None and video.route is not None:
                 generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
-            resolved = await r.resolve_video_backend(project, payload, generation_type=generation_type)
+            # r2v 单元按可用参考图数在家族内精确选 I{N} 端点；其余情形保持原解析（payload 优先、
+            # 桶骨架 + 能力闸 / 身份收敛）。换的只有 resolved 这一步，后续构造与求值不变。
+            if (
+                video.route == "reference_video"
+                and generation_type == "r2v"
+                and video.reference_count is not None
+                and not payload
+            ):
+                resolved = await r.resolve_reference_video_backend_for_count(
+                    project, reference_count=video.reference_count
+                )
+            else:
+                resolved = await r.resolve_video_backend(project, payload, generation_type=generation_type)
             video_backend = await _get_or_create_video_backend(
                 resolved.provider_id,
                 {},

@@ -578,12 +578,15 @@ class VideoBucketCapabilityError(ValueError):
         provider_id: str,
         model_id: str,
         message: str,
+        extra_params: dict[str, object] | None = None,
     ):
         self.code = code
         self.generation_type = generation_type
         self.provider_id = provider_id
         self.model_id = model_id
-        self.params: dict[str, str] = {"provider": provider_id, "model": model_id}
+        # 注解放宽到 ``object``：既有调用点只填 ``provider`` / ``model`` 两个字符串，
+        # 按 N 选端点的无匹配路径额外填 int 的 ``required_slots``（下游折叠点均按 object 承接）。
+        self.params: dict[str, object] = {"provider": provider_id, "model": model_id, **(extra_params or {})}
         super().__init__(message)
 
 
@@ -793,6 +796,72 @@ class ConfigResolver:
         """
         async with self._open_session() as (session, svc):
             return await self._resolve_video_provider_model(svc, session, project, payload, generation_type)
+
+    async def resolve_reference_video_backend_for_count(
+        self, project: dict | None, *, reference_count: int
+    ) -> ProviderModel:
+        """参考生视频 R2V 单元按**可用参考图数** ``reference_count`` 精确选端点（``docs/adr/0054``）。
+
+        先按 r2v 桶骨架解析配置选中的 ``(provider_id, model_id)``；仅当它指向某 custom provider
+        且该 provider 存在 R2V 候选家族时，才在家族内按 N 选 ``max_reference_images == N`` 的那个
+        model（3 张 → I3，7 张 → I7），严格匹配、不就近、不裁剪、不回退。内置 provider、该 provider
+        无家族、或没命中档位之外的情形保留原 ``resolve_video_backend`` 行为（后者的 clamp 由
+        投影 / 执行层各自处理）。无匹配即抛 ``VideoBucketCapabilityError``、点名所缺槽数。
+
+        ``reference_count`` 必须是非负 int（来源 ``len(hydration.available)`` / ``len(available)``
+        天然满足）；非 int / 负数是编程错误护栏，抛 ``ValueError``。
+        """
+        from lib.infra.schema_guards import is_int
+
+        if not is_int(reference_count, minimum=0):
+            raise ValueError(f"reference_count must be a non-negative integer, got {reference_count!r}")
+
+        async with self._open_session() as (session, svc):
+            provider_id, model_id = await self._resolve_layered_backend(
+                svc, session, project, _VIDEO_LAYERED_KEYS["r2v"]
+            )
+            if not is_custom_provider(provider_id):
+                selected = ProviderModel(provider_id, model_id)
+                await self._ensure_video_bucket_capability(session, selected, "r2v")
+                return selected
+
+            # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
+            # 该符号所在的装配层反过来依赖 lib.config，模块级导入会成环。
+            from lib.custom_provider.reference_video_model_selection import (
+                resolve_reference_video_family,
+                select_reference_video_model,
+            )
+
+            try:
+                db_pid = parse_provider_id(provider_id)
+            except ValueError:
+                # provider id 不可解析：无家族，退回原解析（含能力闸 / 身份收敛）。
+                selected = ProviderModel(provider_id, model_id)
+                await self._ensure_video_bucket_capability(session, selected, "r2v")
+                return selected
+
+            family = await resolve_reference_video_family(session, db_pid)
+            if not family:
+                # 该 provider 没有 R2V 候选家族：退回原解析，保留今天的单模型 + clamp 行为。
+                selected = ProviderModel(provider_id, model_id)
+                await self._ensure_video_bucket_capability(session, selected, "r2v")
+                return selected
+
+            try:
+                chosen_model = select_reference_video_model(reference_count, family)
+            except VideoBucketCapabilityError as exc:
+                # 选择函数不持有家族身份，无匹配时重抛补齐 provider / model（点名配置选中的家族代表）。
+                raise VideoBucketCapabilityError(
+                    code=exc.code,
+                    generation_type="r2v",
+                    provider_id=provider_id,
+                    model_id=model_id,
+                    message=str(exc),
+                    extra_params={"required_slots": reference_count},
+                ) from exc
+            selected = ProviderModel(provider_id, chosen_model)
+            await self._ensure_video_bucket_capability(session, selected, "r2v")
+            return selected
 
     async def resolve_resolution(self, project: dict, provider_id: str, model_id: str) -> str | None:
         """按 project.model_settings → legacy video_model_settings → 自定义供应商默认 → None。

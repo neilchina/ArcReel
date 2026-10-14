@@ -345,7 +345,12 @@ async def execute_reference_video_task(
         execution_payload,
         project=project,
         user_id=user_id,
-        video=VideoLaneRequest(generation_type=execution_generation_type, route="reference_video"),
+        # N 取裁剪前的可用参考图数：r2v 单元按它精确选 I{N} 端点，与定桶同源、不二次水合。
+        video=VideoLaneRequest(
+            generation_type=execution_generation_type,
+            route="reference_video",
+            reference_count=len(hydration.available),
+        ),
     )
     generator = ctx.generator
     video = ctx.video
@@ -363,9 +368,13 @@ async def execute_reference_video_task(
     if lane_request_facts is None:
         raise RuntimeError("reference video lane is missing its request facts")
 
-    async def _lane_request_facts(generation_type: VideoGenerationType) -> VideoRequestFactsResult:
+    async def _lane_request_facts(
+        generation_type: VideoGenerationType, reference_count: int | None = None
+    ) -> VideoRequestFactsResult:
         # lane 与投影按同一份资产水合定桶；两次水合之间资产变了会落到另一个桶，而 lane 只为
-        # 本桶构造了 backend，按能力不可用阻断。
+        # 本桶构造了 backend，按能力不可用阻断。lane 已按本单元 N 选中 I{N} 并求好事实，故此处
+        # 忽略 reference_count——身份在 resolve_generation_context 处就按 N 定了。
+        del reference_count
         if generation_type != execution_generation_type:
             return VideoRequestFactsFailure("reference_capability_unavailable", (("capability", generation_type),))
         return lane_request_facts
