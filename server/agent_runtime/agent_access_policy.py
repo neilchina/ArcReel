@@ -15,6 +15,7 @@ import tempfile
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -35,6 +36,27 @@ logger = logging.getLogger(__name__)
 def _default_claude_projects_dir() -> Path:
     """SDK 存放 per-project 会话数据的基准目录。"""
     return Path.home() / ".claude" / "projects"
+
+
+class Decision(StrEnum):
+    """路径裁决三态——与「硬拒」二态区分开两类不同语义。
+
+    - ``ALLOW``：直接放行、不弹窗（当前已可访问的路径，保持原样）。
+    - ``ASK``：向用户弹窗请求授权（批准→放行 / 拒绝→拒绝）。覆盖原本硬拒、但语义是
+      「权限不够、问一下就能放」的分支（跨项目读、数据根内其他条目、搜索根过宽、host
+      文件系统、cwd 外写、数据根外敏感文件）。
+    - ``DENY``：硬拒、不弹窗。只留给两类「不是权限问题」的情形——坏输入（无效路径）与
+      数据正确性/设计约束（受保护写路径 ``PROTECTED_WRITE_RULES``、代码扩展名写入），
+      即便用户点批准也不该放行。
+
+    用 ``StrEnum`` 便于比较与日志；枚举值字符串是本模块内部口径，不等同 SDK 的
+    ``permissionDecision`` 取值——映射到 SDK ``"allow"/"ask"/"deny"`` 由 options_assembler
+    层（SDK 封皮）完成，本模块保持零 SDK 依赖。
+    """
+
+    ALLOW = "allow"
+    ASK = "ask"
+    DENY = "deny"
 
 
 @dataclass(frozen=True)
@@ -215,13 +237,18 @@ class AgentAccessPolicy:
         project_cwd: Path,
         *,
         user_id: str,
-    ) -> tuple[bool, str | None]:
-        """检查 file_path 是否允许给定工具访问，返回 ``(allowed, deny_reason)``。
+    ) -> tuple[Decision, str | None]:
+        """检查 file_path 是否允许给定工具访问，返回三态 ``(Decision, reason)``。
 
         三步 dispatch：
-        - 规则 0：数据根外的敏感文件（.env / settings.json 等）一律拒
+        - 规则 0：数据根外的敏感文件（.env / settings.json 等）→ ASK（弹窗请求授权，
+          含对真实路径的强调，见文案）；
         - 写工具（Write/Edit）→ ``_check_write_access``
         - 读工具（Read/Glob/Grep）→ ``_check_read_access``
+
+        三态语义见 ``Decision``：ALLOW 直接放行、ASK 弹窗请求授权、DENY 硬拒。坏输入
+        （无效路径）归 DENY（不是权限问题、不该弹窗）；敏感文件归 ASK（用户要求含敏感
+        文件也走弹窗，``reason`` 回显 resolved 路径供前端强调以降低误批）。
 
         ``user_id`` 与 ``project_cwd`` 同级逐调用传入（用户记忆目录按它派生），
         policy 本身仍是进程级零 I/O 单例、不持有当前用户。
@@ -235,11 +262,12 @@ class AgentAccessPolicy:
             logical_norm = Path(os.path.normpath(str(logical)))
             resolved = logical.resolve()
         except (ValueError, OSError):
-            return False, "访问被拒绝：无效的文件路径"
+            # 坏输入不是权限问题：硬拒、不弹窗。
+            return Decision.DENY, "访问被拒绝：无效的文件路径"
 
-        # 规则 0: 敏感文件强制拒绝
+        # 规则 0: 数据根外敏感文件 → 弹窗请求授权（文案强调真实路径供前端标红）
         if self.is_sensitive_path(resolved):
-            return False, f"访问被拒绝：敏感文件不可访问 ({resolved})"
+            return Decision.ASK, f"需要授权：敏感文件访问请求 ({resolved})"
 
         if tool_name in self._WRITE_TOOLS:
             return self._check_write_access(resolved, project_cwd, logical_norm=logical_norm, user_id=user_id)
@@ -677,7 +705,7 @@ class AgentAccessPolicy:
 
     def _check_read_access(
         self, resolved: Path, project_cwd: Path, *, user_id: str, is_search: bool
-    ) -> tuple[bool, str | None]:
+    ) -> tuple[Decision, str | None]:
         """Read/Glob/Grep 的跨项目隔离 + host 文件系统封锁。
 
         用户记忆目录放行；cwd 内放行（项目记忆在其中）；SDK tool-results / /tmp/claude-*/tasks 例外放行；
@@ -693,9 +721,9 @@ class AgentAccessPolicy:
         数据根是同一目录，按原样比对会落进仓库根放行。
         """
         if self._is_user_memory_path(resolved, user_id=user_id):
-            return True, None
+            return Decision.ALLOW, None
         if resolved.is_relative_to(project_cwd):
-            return True, None
+            return Decision.ALLOW, None
         # SDK tool-results 例外（已 resolve 的基准见 _claude_projects_dir_resolved）。
         # encoded 为 None（SDK 缺失）时跳过——fail-closed，不放行任何 tool-results。
         claude_projects_dir = self._claude_projects_dir_resolved
@@ -703,30 +731,34 @@ class AgentAccessPolicy:
         if claude_projects_dir is not None and encoded is not None:
             sdk_project_dir = claude_projects_dir / encoded
             if resolved.is_relative_to(sdk_project_dir) and "tool-results" in resolved.parts:
-                return True, None
+                return Decision.ALLOW, None
         # resume + store-backed 物化出的临时基准下的 tool-results 例外（覆盖非 resume
         # 之外的 resume 场景，见 _is_resume_tool_results_path）。
         if self._is_resume_tool_results_path(resolved, project_cwd, encoded):
-            return True, None
+            return Decision.ALLOW, None
         # SDK 后台任务输出例外（前缀计算见 _sdk_tmp_prefixes，实例内缓存一次）。
         if str(resolved).startswith(self._sdk_tmp_prefixes) and "tasks" in resolved.parts:
-            return True, None
-        # 数据根内：当前项目与当前用户的记忆已在上面放行，其余一律拒
+            return Decision.ALLOW, None
+        # 以下几类原本硬拒，现改为弹窗请求授权（ASK）：都是「权限不够、问一下可放」而非坏输入。
+        # 数据根内：当前项目与当前用户的记忆已在上面放行，其余跨项目/数据根条目 → ASK
         if self._is_within_for_compare(resolved, self._layout.projects_dir):
-            return False, (f"访问被拒绝：不允许跨项目读取 ({resolved} 不在当前项目 {project_cwd} 内)")
+            return Decision.ASK, (f"需要授权：跨项目读取请求 ({resolved} 不在当前项目 {project_cwd} 内)")
         if self._is_within_for_compare(resolved, self.data_root):
-            return False, (f"访问被拒绝：数据根内只能读取当前项目与你的记忆 ({resolved})")
+            return Decision.ASK, (f"需要授权：数据根内其他条目的读取请求 ({resolved})")
         if is_search and self._is_within_for_compare(self.data_root, resolved):
-            return False, (f"访问被拒绝：搜索范围包含数据根，请缩小到当前项目或具体的参考资料目录 ({resolved})")
+            # 注意：这是搜索根过宽（搜索范围包含数据根），批准语义是「允许这次把数据根纳入搜索」。
+            return Decision.ASK, (
+                f"需要授权：搜索范围包含数据根（搜索根过宽），确认后将把数据根纳入本次搜索 ({resolved})"
+            )
         # 仓库根内的参考资料（lib/docs/agent_runtime_profile 等）放行
         if resolved.is_relative_to(self.project_root):
-            return True, None
-        # 其余路径（host 文件系统：~/.ssh、/etc 等）默认拒
-        return False, (f"访问被拒绝：路径在项目根外 ({resolved})")
+            return Decision.ALLOW, None
+        # 其余路径（host 文件系统：~/.ssh、/etc 等）→ 弹窗请求授权
+        return Decision.ASK, (f"需要授权：项目根外的 host 路径访问请求 ({resolved})")
 
     def _check_write_access(
         self, resolved: Path, project_cwd: Path, *, logical_norm: Path, user_id: str
-    ) -> tuple[bool, str | None]:
+    ) -> tuple[Decision, str | None]:
         """Write/Edit 的写入约束：cwd 外（用户记忆目录除外）一律拒，cwd 内先过 ``PROTECTED_WRITE_RULES`` 规则表
         （``scripts/*.json`` / ``project.json`` / 正式 script_plan——只能走收归后的 MCP
         工具），再拒代码扩展名（Agent 不写代码）。
@@ -744,22 +776,26 @@ class AgentAccessPolicy:
         # 用户记忆目录在 cwd 外但属 Agent 可写区（项目记忆在 cwd 内，走下面的常规路径）；
         # 代码扩展名拒仍然适用——记忆装的是笔记，放宽扩展名等于给 Bash 递可执行脚本。
         in_user_memory = self._is_user_memory_path(resolved, user_id=user_id)
+        # cwd 外（非用户记忆）写入原本硬拒，现改为弹窗请求授权（ASK）——属「权限不够、问一下可放」。
         if not in_user_memory and not any(resolved.is_relative_to(base) for base in bases):
-            return False, (f"访问被拒绝：不允许写入当前项目目录之外的路径 ({resolved})")
+            return Decision.ASK, (f"需要授权：项目目录之外的写入请求 ({resolved})")
 
+        # 以下两类维持硬拒（DENY）：不是权限问题，而是数据正确性/设计约束，即便用户点批准也不该放行。
+        # W3 受保护写路径：另有多条持同一把 per-path 锁的合法写入通道，Write/Edit 取不到锁，直改即破坏数据。
         for rule in self.PROTECTED_WRITE_RULES:
             if any(rule.matches(target, bases) for target in (resolved, logical_norm)):
-                return False, rule.deny_message
+                return Decision.DENY, rule.deny_message
 
+        # W4 代码扩展名：Agent 不写代码（设计约束，Windows 回退无 sandbox denyExec 兜底）。
         ext = resolved.suffix.lower()
         if ext in self._CODE_EXTENSIONS_FORBIDDEN:
-            return False, (
+            return Decision.DENY, (
                 f"不允许在项目内创建/编辑 {ext} 类型的代码文件。"
                 "Write/Edit 应用于数据文件 (.json/.md/.txt 等)；"
                 "代码逻辑请通过现有 skill 脚本完成。"
             )
 
-        return True, None
+        return Decision.ALLOW, None
 
     @staticmethod
     def _enumerate_cwd_bases(project_cwd: Path) -> list[Path]:
