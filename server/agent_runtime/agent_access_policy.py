@@ -38,6 +38,16 @@ def _default_claude_projects_dir() -> Path:
     return Path.home() / ".claude" / "projects"
 
 
+def _default_resume_tmp_dir() -> Path:
+    """SDK store-backed resume 物化临时 CLAUDE_CONFIG_DIR 的 tmp 基准目录。
+
+    默认取 ``tempfile.gettempdir()``（``field(default_factory=...)`` 要求零参可调用返回
+    字段类型，``gettempdir`` 返回 ``str``，故在此包成 ``Path``——与
+    ``_default_claude_projects_dir`` 同一取法）。
+    """
+    return Path(tempfile.gettempdir())
+
+
 class Decision(StrEnum):
     """路径裁决三态——与「硬拒」二态区分开两类不同语义。
 
@@ -117,6 +127,10 @@ class AgentAccessPolicy:
     in_docker: bool = False
     # SDK 存放 per-project 会话数据的基准目录（tool-results 读放行例外的基准）。
     claude_projects_dir: Path = field(default_factory=_default_claude_projects_dir)
+    # SDK store-backed resume 物化临时 CLAUDE_CONFIG_DIR 的 tmp 基准目录（resume tool-results
+    # 读放行例外的 ``claude-resume-`` 前缀基准）。默认取进程 ``$TMPDIR``；作为进程级事实注入，
+    # 与其他根路径字段同口径，测试据此注入可控 tmp 根而无需 patch 私有 cached_property。
+    resume_tmp_dir: Path = field(default_factory=_default_resume_tmp_dir)
 
     # Bash 系列工具：sandbox 启用时进 allowed_tools（autoAllowBashIfSandboxed
     # 协同放行）；sandbox 关闭（Windows 回退）时剥离，命令落到 can_use_tool
@@ -610,7 +624,7 @@ class AgentAccessPolicy:
     # /private/var``、``/tmp↔/private/tmp`` 为 symlink），raw + resolve 两形态都列出防 startswith 失配。
     @functools.cached_property
     def _sdk_resume_tmp_prefixes(self) -> tuple[str, ...]:
-        _tempdir = Path(tempfile.gettempdir())
+        _tempdir = self.resume_tmp_dir
         return (
             str(_tempdir / "claude-resume-"),
             str(_tempdir.resolve() / "claude-resume-"),

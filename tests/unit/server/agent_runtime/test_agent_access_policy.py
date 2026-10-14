@@ -892,7 +892,8 @@ def test_search_rooted_above_data_root_asks(policy: AgentAccessPolicy, tool: str
 # ``.../claude-resume-*/projects/<project_key>/<uuid-session>/tool-results/``。
 # 该临时基准不在 ``~/.claude/projects`` 下，须按 SDK 临时树结构精确放行当前会话、
 # 当前项目的 tool-results，同时对伪造/跨项目/host 路径仍 fail-closed。
-# 用例把 ``_sdk_resume_tmp_prefixes`` monkeypatch 到可控的 tmp 根，避免依赖机器 $TMPDIR。
+# 用例经 ``resume_tmp_dir`` 字段注入可控的 tmp 根（``dataclasses.replace``），避免依赖机器
+# $TMPDIR，也不 patch 生产私有 cached_property。
 # ============================================================
 
 #: 合法 session 段形态（SDK 用 UUID 命名 resume 会话目录）。
@@ -906,12 +907,12 @@ def _resume_base(tmp_path: Path) -> Path:
     return base
 
 
-def _patch_resume_prefix(monkeypatch: pytest.MonkeyPatch, policy: AgentAccessPolicy, base: Path) -> None:
-    """把 policy 的 resume 临时前缀指向可控的 ``base`` 的父目录（raw + resolved 两形态），
-    使 ``startswith`` 对测试造出的 ``claude-resume-`` 目录成立，不依赖机器真实 $TMPDIR。"""
-    parent = base.parent
-    prefixes = (f"{parent}/claude-resume-", f"{parent.resolve()}/claude-resume-")
-    monkeypatch.setattr(AgentAccessPolicy, "_sdk_resume_tmp_prefixes", prefixes)
+def _with_resume_tmp_dir(policy: AgentAccessPolicy, base: Path) -> AgentAccessPolicy:
+    """把 policy 的 resume 临时基准经 ``resume_tmp_dir`` 字段注入为 ``base`` 的父目录，
+    使派生前缀 ``<base.parent>/claude-resume-``（raw + resolved）对测试造出的
+    ``claude-resume-`` 目录成立，不依赖机器真实 $TMPDIR、也不 patch 私有 cached_property。
+    返回注入后的新 policy，调用方须改用它。"""
+    return replace(policy, resume_tmp_dir=base.parent)
 
 
 def _make_resume_tool_results(base: Path, encoded: str, session: str = _RESUME_SESSION_UUID) -> Path:
@@ -923,15 +924,13 @@ def _make_resume_tool_results(base: Path, encoded: str, session: str = _RESUME_S
     return result_file
 
 
-def test_read_resume_tool_results_allowed(
-    policy: AgentAccessPolicy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_read_resume_tool_results_allowed(policy: AgentAccessPolicy, tmp_path: Path) -> None:
     """正例（本次修复）：resume 临时基准 + 当前项目 encoded + 含 tool-results 段 → Read 放行。"""
     from lib.agent.agent_session_store import make_project_key
 
     cwd = _cwd(policy)
     base = _resume_base(tmp_path)
-    _patch_resume_prefix(monkeypatch, policy, base)
+    policy = _with_resume_tmp_dir(policy, base)
     result_file = _make_resume_tool_results(base, make_project_key(cwd))
 
     decision, reason = policy.check_path_access(str(result_file), "Read", cwd, user_id=_USER_ID)
@@ -959,16 +958,14 @@ def test_read_non_resume_tool_results_still_allowed(
     assert decision is Decision.ALLOW, f"非 resume tool-results 应放行：{reason}"
 
 
-def test_read_resume_tool_results_other_project_key_not_allowed(
-    policy: AgentAccessPolicy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_read_resume_tool_results_other_project_key_not_allowed(policy: AgentAccessPolicy, tmp_path: Path) -> None:
     """负例：resume 临时基准但 encoded 段是别的项目 key → 不自动放行（锁定当前项目）；
     落到 host tmp 路径分支，改为弹窗请求授权（ASK）而非直接 ALLOW。"""
     from lib.agent.agent_session_store import make_project_key
 
     cwd = _cwd(policy)
     base = _resume_base(tmp_path)
-    _patch_resume_prefix(monkeypatch, policy, base)
+    policy = _with_resume_tmp_dir(policy, base)
     other_cwd = _projects_dir(policy) / "other"
     result_file = _make_resume_tool_results(base, make_project_key(other_cwd))
 
@@ -977,16 +974,14 @@ def test_read_resume_tool_results_other_project_key_not_allowed(
     assert reason
 
 
-def test_read_fake_tmp_tool_results_not_allowed(
-    policy: AgentAccessPolicy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_read_fake_tmp_tool_results_not_allowed(policy: AgentAccessPolicy, tmp_path: Path) -> None:
     """负例：$TMPDIR 下伪造的、非 claude-resume- 前缀的含 tool-results 路径 → 仍拒
     （前缀收窄为 claude-resume-，普通 tmp 目录与泛 claude- 任务目录都不匹配）。"""
     from lib.agent.agent_session_store import make_project_key
 
     cwd = _cwd(policy)
     base = _resume_base(tmp_path)
-    _patch_resume_prefix(monkeypatch, policy, base)
+    policy = _with_resume_tmp_dir(policy, base)
     encoded = make_project_key(cwd)
     # 同一父目录下但不是 claude-resume- 前缀：伪造的 evil 目录，结构照抄也应拒
     evil = tmp_path / "evil-xxxx" / "projects" / encoded / _RESUME_SESSION_UUID / "tool-results"
@@ -999,16 +994,14 @@ def test_read_fake_tmp_tool_results_not_allowed(
     assert reason
 
 
-def test_read_resume_tool_results_bad_session_segment_not_allowed(
-    policy: AgentAccessPolicy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_read_resume_tool_results_bad_session_segment_not_allowed(policy: AgentAccessPolicy, tmp_path: Path) -> None:
     """负例补强：claude-resume- 前缀 + 当前项目 encoded，但 session 段不是 UUID → 仍拒
     （防止在合法前缀下塞非会话目录读到意外文件）。"""
     from lib.agent.agent_session_store import make_project_key
 
     cwd = _cwd(policy)
     base = _resume_base(tmp_path)
-    _patch_resume_prefix(monkeypatch, policy, base)
+    policy = _with_resume_tmp_dir(policy, base)
     result_file = _make_resume_tool_results(base, make_project_key(cwd), session="not-a-uuid")
 
     decision, reason = policy.check_path_access(str(result_file), "Read", cwd, user_id=_USER_ID)
@@ -1017,11 +1010,11 @@ def test_read_resume_tool_results_bad_session_segment_not_allowed(
 
 
 def test_read_host_and_other_memory_with_resume_exception_not_allowed(
-    policy: AgentAccessPolicy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    policy: AgentAccessPolicy, tmp_path: Path
 ) -> None:
     """负例：~/.ssh、/etc、他人记忆目录 → 不自动放行（resume 例外不放宽这些分支），改走弹窗请求授权（ASK）。"""
     base = _resume_base(tmp_path)
-    _patch_resume_prefix(monkeypatch, policy, base)
+    policy = _with_resume_tmp_dir(policy, base)
     cwd = _cwd(policy)
 
     outside = tmp_path / "host_fake_ssh"
@@ -1037,9 +1030,7 @@ def test_read_host_and_other_memory_with_resume_exception_not_allowed(
     assert reason
 
 
-def test_read_resume_tool_results_underscore_space_project_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_read_resume_tool_results_underscore_space_project_path(tmp_path: Path) -> None:
     """编码口径：含下划线/空格的项目路径，make_project_key 口径下 resume tool-results 仍能正确放行
     （换用 make_project_key 后 encoded 段与 SDK 实际写入目录逐字节一致，不再因 replace 两字符而漂移）。"""
     from lib.agent.agent_session_store import make_project_key
@@ -1048,7 +1039,7 @@ def test_read_resume_tool_results_underscore_space_project_path(
     cwd = _projects_dir(policy) / "my_proj with space"
     cwd.mkdir(parents=True)
     base = _resume_base(tmp_path)
-    _patch_resume_prefix(monkeypatch, policy, base)
+    policy = _with_resume_tmp_dir(policy, base)
     result_file = _make_resume_tool_results(base, make_project_key(cwd))
 
     decision, reason = policy.check_path_access(str(result_file), "Read", cwd, user_id=_USER_ID)
