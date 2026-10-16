@@ -25,7 +25,6 @@ from uuid import uuid4
 
 import httpx
 
-from arcreel_market_core.comfyui.bindings import targets_of
 from arcreel_market_core.video_backend_contract import ProviderResponseStage
 from lib.backends.backend_runtime import notify_provider_response_to
 from lib.backends.image_backends.base import (
@@ -33,7 +32,7 @@ from lib.backends.image_backends.base import (
     ImageGenerationRequest,
     ImageGenerationResult,
 )
-from lib.custom_provider.comfyui.capabilities import takes_reference_images
+from lib.custom_provider.comfyui.capabilities import image_key_targets, takes_reference_images
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.custom_provider.comfyui.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution
 from lib.custom_provider.comfyui.comfyui_http_client import comfyui_http_client
@@ -107,9 +106,12 @@ class ComfyuiImageBackend:
         """参考图格子数就是这份 workflow 能收几张。
 
         不返回 ``0``（「本后端不按数量裁剪」）：多出来的图在构造层本来就没有落点，让编排层先按这个
-        数裁剪并提示，比静默丢掉几张用户挑过的参考图诚实。
+        数裁剪并提示，比静默丢掉几张用户挑过的参考图诚实。格子认「正式绑定 ∪ 标题标记」
+        （:func:`image_key_targets`），与构造层落图认的是同一份。
         """
-        return len(targets_of((self._definition.get("bindings") or {}).get("reference_images")))
+        bindings: Mapping[str, Any] = self._definition.get("bindings") or {}
+        workflow: Mapping[str, Any] = self._definition.get("workflow") or {}
+        return len(image_key_targets(workflow, bindings, "reference_images"))
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         job_label = self._job_label or uuid4().hex

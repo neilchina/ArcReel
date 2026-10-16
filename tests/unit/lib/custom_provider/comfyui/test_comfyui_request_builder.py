@@ -296,6 +296,43 @@ class TestDuration:
         assert built.duration is None
 
 
+class TestDurationTitleMarkerFallback:
+    """标题标记的时长节点与正式绑定同口径：能力层说可驱动，填值层就得真写进去。"""
+
+    @staticmethod
+    def _with_titled_duration(value: int = 16) -> dict[str, Any]:
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["37"] = {
+            "class_type": "PrimitiveFloat",
+            "inputs": {"value": value},
+            "_meta": {"title": "(input:duration) Duration"},
+        }
+        return definition
+
+    def test_the_planned_seconds_land_on_the_titled_node(self):
+        built = _build(self._with_titled_duration(), duration_seconds=8)
+
+        assert built.duration == 8
+        assert _inputs(built, "37")["value"] == 8
+
+    def test_no_planned_seconds_keeps_the_titled_node_literal(self):
+        built = _build(self._with_titled_duration(), duration_seconds=None)
+
+        assert built.duration is None
+        assert _inputs(built, "37")["value"] == 16
+
+    def test_the_formal_binding_still_wins_over_the_title_marker(self):
+        definition = self._with_titled_duration(99)
+        definition["workflow"]["9"]["inputs"]["length"] = 1
+        definition["bindings"]["duration"] = [{"node": "9", "input": "length", "class_type": "SaveVideo"}]
+
+        built = _build(definition, duration_seconds=5)
+
+        assert built.duration == 5
+        assert _inputs(built, "9")["length"] == 5
+        assert _inputs(built, "37")["value"] == 99
+
+
 class TestSeed:
     def test_the_random_policy_rolls_inside_the_thirty_two_bit_range(self):
         built = _build(comfyui_endpoint_definition(), rng=Random(1234))
@@ -480,6 +517,87 @@ class TestMediaValues:
         assert _inputs(built, "20")["image"] == "a.png"
         assert _inputs(built, "21")["image"] == "b.png"
         assert built.dropped_nodes == ()
+
+
+class TestTitleMarkerFallbackSlots:
+    """绑定表缺条、标题标记认出的图输入：只填不删，不给值时保留底稿字面值。"""
+
+    def _titled_definition(self, key: str, node: str = "20") -> dict[str, Any]:
+        definition = comfyui_endpoint_definition()
+        definition["workflow"][node] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": "draft.png"},
+            "_meta": {"title": f"(input:{key}) Ref 1"},
+        }
+        definition["workflow"]["3"]["inputs"]["image"] = [node, 0]
+        return definition
+
+    def test_a_given_start_frame_is_written_to_the_title_marked_node(self):
+        built = _build(self._titled_definition("start_image"), media=MediaInputs(start_image="sub/first.png"))
+
+        assert _inputs(built, "20")["image"] == "sub/first.png"
+        assert built.dropped_nodes == ()
+
+    def test_a_missing_start_frame_keeps_the_draft_literal_and_the_node(self):
+        built = _build(self._titled_definition("start_image"), media=MediaInputs(start_image=None))
+
+        assert _inputs(built, "20")["image"] == "draft.png"
+        assert "20" in built.workflow
+        assert built.dropped_nodes == ()
+
+    def test_reference_slots_fill_in_node_id_order_without_dropping(self):
+        definition = comfyui_endpoint_definition()
+        for node, name in (("21", "ref_b"), ("20", "ref_a")):
+            definition["workflow"][node] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": f"{name}.png"},
+                "_meta": {"title": "(input:reference_images) Ref"},
+            }
+
+        built = _build(definition, media=MediaInputs(reference_images=("x.png", "y.png")))
+
+        assert _inputs(built, "20")["image"] == "x.png"
+        assert _inputs(built, "21")["image"] == "y.png"
+        assert built.dropped_nodes == ()
+
+    def test_fewer_references_than_title_slots_repeat_the_last_image(self):
+        """标题格子没有 consumer 记录、改不动图：退回复制最后一张，而不是删格子。"""
+        definition = comfyui_endpoint_definition()
+        for node in ("20", "21"):
+            definition["workflow"][node] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": f"{node}.png"},
+                "_meta": {"title": "(input:reference_images) Ref"},
+            }
+
+        built = _build(definition, media=MediaInputs(reference_images=("x.png",)))
+
+        assert _inputs(built, "20")["image"] == "x.png"
+        assert _inputs(built, "21")["image"] == "x.png"
+        assert built.dropped_nodes == ()
+
+    def test_no_references_keeps_every_title_slot_at_its_draft_literal(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["20"] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": "ref_a.png"},
+            "_meta": {"title": "(input:reference_images) Ref 1"},
+        }
+
+        built = _build(definition, media=MediaInputs(reference_images=()))
+
+        assert _inputs(built, "20")["image"] == "ref_a.png"
+        assert built.dropped_nodes == ()
+
+    def test_formal_binding_still_drops_when_the_title_marker_also_sits_there(self):
+        """正式绑定与标题标记同节点：绑定表优先，不给值照样改图。"""
+        definition = _i2v_definition()
+        definition["workflow"]["20"]["_meta"] = {"title": "(input:start_image) Ref 1"}
+
+        built = _build(definition, media=MediaInputs(start_image=None))
+
+        assert "20" not in built.workflow
+        assert "20" in built.dropped_nodes
 
 
 class TestImageDrop:

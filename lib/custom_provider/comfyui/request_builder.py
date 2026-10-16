@@ -30,7 +30,7 @@ from arcreel_market_core.aspect_size import (
     aspect_size,
 )
 from arcreel_market_core.aspect_size import resolution_to_short_edge as short_edge_of_resolution
-from arcreel_market_core.comfyui.bindings import align_frames, step_of
+from arcreel_market_core.comfyui.bindings import align_down, align_frames, step_of
 from arcreel_market_core.comfyui.bindings import bound_fps as _bound_fps
 from arcreel_market_core.comfyui.bindings import int_literal_of as _int_literal
 from arcreel_market_core.comfyui.bindings import literal_of as _literal
@@ -39,7 +39,7 @@ from arcreel_market_core.comfyui.bindings import targets_of as _targets
 from arcreel_market_core.comfyui.workflow import is_link, node_inputs
 from lib.prompts.prompt_utils import append_avoid_text, split_avoid_lines
 
-from .capabilities import keeps_its_own_frame_count, size_is_fixed
+from .capabilities import duration_key_targets, image_key_targets, keeps_its_own_frame_count, size_is_fixed
 from .failures import IMAGE_DROP_UNSUPPORTED, ComfyuiError
 from .inference_rules import InferenceRules, MergeNode, load_inference_rules
 
@@ -288,14 +288,9 @@ def _write_stepped(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]
     """把一个派生尺寸按各条目的步长向下对齐后写入，回传最后写出的值。"""
     written: int | None = None
     for target in targets:
-        written = _align_down(value, step_of(target))
+        written = align_down(value, step_of(target))
         _write_one(workflow, target, written)
     return written
-
-
-def _align_down(value: int, step: int) -> int:
-    """向下对齐到 ``step`` 的整数倍，下限一个 ``step``——零尺寸提交上去必然报错。"""
-    return max(step, value - value % step)
 
 
 # ---------------------------------------------------------------- 帧数
@@ -341,21 +336,25 @@ def _write_duration(
 ) -> int | None:
     """把时长（秒）原样写进 ``duration`` 目标，有步长则向下对齐，回传最后写出的值。
 
+    目标认「正式绑定 ∪ 标题标记」（:func:`.capabilities.duration_key_targets`），与能力推导同口径：
+    界面上「时长可驱动、默认档位读得出」的 workflow，提交时秒数真能落进图里。
+
     不复用 :func:`~arcreel_market_core.comfyui.bindings.align_frames`：它的下限是 ``1 + step``，那是
     「首帧 + 若干段间隔」的帧数语义——帧数至少要凑出一个完整步长才合法。秒数没有这层含义，一个
-    8 秒片不该因为步长是 4 就被抬到 9 秒。duration 的对齐就是尺寸那套 :func:`_align_down`：向下对齐
-    到 step 的整数倍、下限一个 step（``step`` 缺省为 1 时等于把整数秒原样写进去）。
+    8 秒片不该因为步长是 4 就被抬到 9 秒。duration 的对齐就是尺寸那套
+    :func:`~arcreel_market_core.comfyui.bindings.align_down`：向下对齐到 step 的整数倍、下限一个
+    step（``step`` 缺省为 1 时等于把整数秒原样写进去）。
 
     ``duration_seconds`` 为 ``None`` 即这一维不由本次请求驱动（与 :func:`_write_frames` 同样的 guard
     风格）：workflow 节点里的字面秒数原样留着。
     """
-    targets = _targets(bindings.get("duration"))
+    targets = duration_key_targets(workflow, bindings)
     if not targets or duration_seconds is None:
         return None
     seconds = round(duration_seconds)
     written: int | None = None
     for target in targets:
-        written = _align_down(seconds, step_of(target))
+        written = align_down(seconds, step_of(target))
         _write_one(workflow, target, written)
     return written
 
@@ -398,16 +397,22 @@ def _apply_media(
 
     首尾帧与参考图都是「绑定了但这次没给值」就要改图：读图节点留在图里会按 workflow 的字面
     文件名去读一张上次的图，模型照着它出片，用户看到的是一张自己没选过的首帧。
+
+    标题标记兜底的格子（:func:`image_key_targets` 回退认出的、没有正式绑定的节点）只填不删：
+    它不是用户确认过的绑定，不给值时 workflow 保留自己的底稿，删了反而可能把图拆坏。
     """
     doomed: list[str] = []
     for key, value in (("start_image", media.start_image), ("end_image", media.end_image)):
-        targets = _targets(bindings.get(key))
+        targets = image_key_targets(workflow, bindings, key)
+        formal = _targets(bindings.get(key))
         if value is not None:
             _write_all(workflow, targets, value)
-        else:
-            doomed.extend(str(target["node"]) for target in targets)
+        elif formal:
+            doomed.extend(str(target["node"]) for target in formal)
     doomed.extend(
-        _apply_reference_images(workflow, _targets(bindings.get("reference_images")), media.reference_images, rules)
+        _apply_reference_images(
+            workflow, image_key_targets(workflow, bindings, "reference_images"), media.reference_images, rules
+        )
     )
     if not doomed:
         return ()

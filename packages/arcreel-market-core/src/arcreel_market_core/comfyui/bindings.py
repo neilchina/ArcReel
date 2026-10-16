@@ -137,3 +137,13 @@ def align_frames(frames: int, step: int) -> int:
         logger.info("帧数 %d 低于步长 %d 的最小合法值，按 %d 提交", frames, step, 1 + step)
         return 1 + step
     return aligned
+
+
+def align_down(value: int, step: int) -> int:
+    """向下对齐到 ``step`` 的整数倍，下限一个 ``step``——零尺寸/零秒提交上去必然报错。
+
+    与 :func:`align_frames` 的 ``+1``（首帧 + 若干段间隔）不同：秒数与尺寸没有首帧语义，8 秒
+    片子不该因为步长 4 被抬到 9。填值层（``request_builder``）与能力推导（时长原生档位判
+    「选中后还是不是原来那份图」）共读这一份。
+    """
+    return max(step, value - value % step)
