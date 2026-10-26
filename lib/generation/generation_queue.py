@@ -333,9 +333,11 @@ async def _derive_execution_model_for_enqueue(
             resolved = await resolver.resolve_audio_backend(project, payload or {})
         else:
             # image_edit / 衍生资产图必然 i2i 且入队即知（唯一例外，见 docs/adr/0001），按 i2i
-            # 槽解析；其余 image 任务的任务类型执行时才定，取 t2i 作代表性 provider。
+            # 槽解析；其余 image 任务的任务类型执行时才定，取 t2i 作 representative provider.
             generation_type = "i2i" if task_type in I2I_ONLY_TASK_TYPES else "t2i"
-            resolved = await resolver.resolve_image_backend(project, payload or {}, generation_type=generation_type)
+            resolved = await resolver.resolve_image_backend(
+                project, payload or {}, generation_type=generation_type, task_type=task_type
+            )
     except Exception:
         logger.debug("入队时派生执行身份失败，留 NULL 由 worker 兜底", exc_info=True)
         return None

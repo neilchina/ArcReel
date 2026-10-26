@@ -770,7 +770,7 @@ async def generate_character_derivative(
     except KeyError as exc:
         raise NotFoundError("character_not_found", name=char_name) from exc
 
-    provider_id = await _require_i2i_image_provider_configured(project)
+    provider_id = await _require_i2i_image_provider_configured(project, task_type=DERIVATIVE_TASK_TYPE)
 
     spec = TaskSpec.from_request(
         task_type=DERIVATIVE_TASK_TYPE,
@@ -850,18 +850,22 @@ async def generate_product(
 # ==================== 图片指令式编辑（image edit） ====================
 
 
-async def _require_i2i_image_provider_configured(project: dict) -> str:
+async def _require_i2i_image_provider_configured(project: dict, *, task_type: str | None = None) -> str:
     """项目 i2i 槽解析不出可用供应商时直接 400，不创建任务。
 
     图片编辑必然 i2i 且入队即知（唯一例外，见 ``docs/adr/0001`` 与 GLOSSARY.md「图片编辑」），
     故解析前置到入队；执行层 ``generate_image_async`` 的能力 gating 保留兜底。
     返回解析出的 provider_id，入队时直接复用（限流池路由按 i2i 槽精确记账）。
+
+    ``task_type`` 与执行层同参：资产图任务传自身 task_type，i2i 槽据此解析该资产类别的默认端点
+    （``IMAGE_ASSET_SLOT_KEYS``，docs/adr/0098）。入队前判定必须与执行层 ``resolve_generation_context``
+    走同一套骨架，否则项目默认端点是纯 t2i 而衍生资产槽位是 i2i 时，入队前误报无 i2i 端点。
     """
     from lib.db import async_session_factory
 
     try:
         resolved = await ConfigResolver(async_session_factory).resolve_image_backend(
-            project, None, generation_type="i2i"
+            project, None, generation_type="i2i", task_type=task_type
         )
     except ValueError as exc:
         raise BadRequestError("image_edit_i2i_unavailable") from exc

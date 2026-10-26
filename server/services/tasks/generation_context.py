@@ -343,6 +343,7 @@ async def resolve_generation_context(
     image: ImageLaneRequest | None = None,
     video: VideoLaneRequest | None = None,
     audio: AudioLaneRequest | None = None,
+    task_type: str | None = None,
 ) -> GenerationContext:
     """在单个 ConfigResolver session 内解析全部声明 lane、构造 backend 并组装 MediaGenerator。
 
@@ -355,6 +356,9 @@ async def resolve_generation_context(
     ``lib.config.resolver.caps_generation_mode``）——生成模式创建即定、整个项目按同一种模式生成，
     声音一致性等二维派生值因此不需要集号；显式给定时按指定桶解析（参考生视频内按视频单元分流的
     调用方自带判定结果）。
+
+    ``task_type`` 只参与 image lane 的资产槽位解析（docs/adr/0098）：资产图任务传入自身
+    task_type，解析优先该资产类别的全局默认端点；非资产图片任务不传（None 时骨架跳过该层）。
     """
     from lib.db import async_session_factory
 
@@ -374,7 +378,9 @@ async def resolve_generation_context(
 
     async with resolver.session() as r:
         if image is not None:
-            resolved = await r.resolve_image_backend(project, payload, generation_type=image.generation_type)
+            resolved = await r.resolve_image_backend(
+                project, payload, generation_type=image.generation_type, task_type=task_type
+            )
             image_backend = await _get_or_create_image_backend(
                 resolved.provider_id,
                 {},

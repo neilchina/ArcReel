@@ -1483,6 +1483,7 @@ async def execute_asset_sheet_task(
         project_path=project_path,
         user_id=user_id,
         image=ImageLaneRequest(generation_type="i2i" if generation_input.references else "t2i"),
+        task_type=kind,
     )
     ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
 

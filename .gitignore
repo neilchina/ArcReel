@@ -68,6 +68,9 @@ frontend/playwright-report/
 # Superpowers (Claude Code plugin cache)
 .superpowers/
 
+# CodeGraph agent index (local code knowledge graph, built by codegraph init)
+.codegraph/
+
 # Test coverage
 htmlcov/
 .coverage

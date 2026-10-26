@@ -232,6 +232,19 @@ _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
     global_default_key="default_audio_backend",
 )
 
+#: 图片资产槽位：资产图任务的 task_type → 全局默认端点设置键（docs/adr/0098）。
+#: 键位按 task_type 而非资产类型登记：本体任务用资产类型本身作 task_type，衍生任务恒为
+#: ``character_derivative``（``lib.project.asset_derivatives.DERIVATIVE_TASK_TYPE``）。
+#: 未登记的 task_type（分镜图、图片编辑等）无槽位，骨架在该层直接跳过。
+IMAGE_ASSET_SLOT_KEYS: dict[str, str] = {
+    "character": "default_image_backend_character",
+    "character_derivative": "default_image_backend_character_derivative",
+    "scene": "default_image_backend_scene",
+    "prop": "default_image_backend_prop",
+    "product": "default_image_backend_product",
+}
+
+
 #: 视频任务类型桶：i2v（图生视频 / 宫格，由首帧驱动；另承接参考生视频无参考图视频单元的降级执行）、
 #: r2v（参考生视频中有参考图的视频单元）。t2v 不设桶（docs/adr/0054）。
 VideoGenerationType = Literal["i2v", "r2v"]
@@ -753,12 +766,15 @@ class ConfigResolver:
         payload: dict | None,
         *,
         generation_type: Literal["t2i", "i2i"],
+        task_type: str | None = None,
     ) -> ProviderModel:
         """解析图片任务应使用的 ProviderModel。
 
-        优先级：payload > 项目桶（``image_provider_<generation_type>``）> 项目默认（``default_image_backend``）
-        > 全局桶（``default_image_backend_<generation_type>``）> 全局默认（``default_image_backend``）> 自动推断。
-        桶是可选覆盖，无值（含显式清空）回退默认层（``docs/adr/0054``）。
+        优先级：payload > 项目资产槽位 > 项目桶（``image_provider_<generation_type>``）> 项目默认
+        （``default_image_backend``）> 全局资产槽位 > 全局桶（``default_image_backend_<generation_type>``）
+        > 全局默认（``default_image_backend``）> 自动推断。资产图任务按 ``IMAGE_ASSET_SLOT_KEYS[task_type]``
+        取项目层与全局层的资产槽位键（docs/adr/0098）：项目槽位取 project.json、全局槽位取设置，
+        同名同槽、项目层最具体。桶是可选覆盖，无值（含显式清空）回退下一层（``docs/adr/0054``）。
         ``generation_type`` 决定走 t2i 还是 i2i 槽（见 ``docs/adr/0001``）。不做任何 provider 归一化。
 
         Raises:
@@ -766,7 +782,7 @@ class ConfigResolver:
                 （``_ensure_image_bucket_capability``），不静默换模型。
         """
         async with self._open_session() as (session, svc):
-            return await self._resolve_image_provider_model(svc, session, project, payload, generation_type)
+            return await self._resolve_image_provider_model(svc, session, project, payload, generation_type, task_type)
 
     async def resolve_video_backend(
         self,
@@ -1121,15 +1137,26 @@ class ConfigResolver:
         session: AsyncSession,
         project: dict | None,
         keys: _LayeredBackendKeys,
+        asset_slot_key: str | None = None,
+        project_asset_slot_key: str | None = None,
     ) -> tuple[str, str]:
-        """「默认 + 任务类型桶」四级解析骨架：项目桶 > 项目默认 > 全局桶 > 全局默认 > 自动推断。
+        """「默认 + 任务类型桶」解析骨架：项目资产槽位 > 项目桶 > 项目默认 > 全局资产槽位 > 全局桶 > 全局默认 > 自动推断。
 
         媒体类型无关，各层键位由 ``_LayeredBackendKeys`` 声明（见 ``docs/adr/0054``）。项目层
         字段兼容裸供应商覆盖（``_parse_project_provider``）；全局层要求 ``provider/model``
         完整形态。payload 层与运行时身份收敛（如视频自定义供应商的有效身份收敛）不属于
         骨架，由各媒体的调用方在骨架外处理。
+
+        ``asset_slot_key``（图片专用，docs/adr/0098）是全局层里按任务资产类别细分的默认端点
+        键位：比全局桶（t2i / i2i）更具体，故排在全局桶之前；仍属全局层，项目层照常优先。
+        ``project_asset_slot_key`` 是它的项目层对应键位（取 project.json，同名同槽）：比项目桶
+        与项目默认更具体，故排在项目桶之前、项目层内最具体。两者无值时各自由骨架继续回退。
         """
         if project:
+            if project_asset_slot_key is not None:
+                parsed = _parse_project_provider(project.get(project_asset_slot_key), keys.media_type)
+                if parsed is not None:
+                    return parsed
             for project_key in (keys.project_bucket_key, keys.project_default_key):
                 if project_key is None:
                     continue
@@ -1137,6 +1164,10 @@ class ConfigResolver:
                 if parsed is not None:
                     return parsed
         settings = await svc.get_all_settings()
+        if asset_slot_key is not None:
+            raw = settings.get(asset_slot_key, "")
+            if "/" in raw:
+                return ConfigService._parse_backend(raw, keys.parse_fallback)
         if keys.global_bucket_key is not None:
             raw = settings.get(keys.global_bucket_key, "")
             if "/" in raw:
@@ -1154,8 +1185,9 @@ class ConfigResolver:
         project: dict | None,
         payload: dict | None,
         generation_type: Literal["t2i", "i2i"],
+        task_type: str | None = None,
     ) -> ProviderModel:
-        """payload 优先解析图片 ProviderModel，无 payload 时走四级骨架。
+        """payload 优先解析图片 ProviderModel，无 payload 时走分层骨架。
 
         payload 层保留 ``payload>project>global`` 的规范骨架，接受 ``image_provider`` /
         ``image_model`` 键——按该格式序列化的任务据此解析。图片任务不锁定执行身份（任务周期
@@ -1163,6 +1195,9 @@ class ConfigResolver:
         供应商（见
         ``_trusted_payload_provider``），否则不予信任、回退骨架（``_resolve_layered_backend``，
         键位见 ``_IMAGE_LAYERED_KEYS``）。
+
+        ``task_type`` 登记在 ``IMAGE_ASSET_SLOT_KEYS`` 时（资产图任务），项目层先查 project.json 的
+        该资产类别槽位、全局层再查设置里的同槽位，各自由无值时回退下一层（docs/adr/0098）。
 
         两层解析出的身份都过能力闸（``_ensure_image_bucket_capability``）：图片侧的桶只在执行时
         才确定（``docs/adr/0001``），payload 层没有已物化的桶键可豁免。
@@ -1175,8 +1210,14 @@ class ConfigResolver:
                 if model is not None:
                     selected = ProviderModel(provider_id, model)
         if selected is None:
+            slot_key = IMAGE_ASSET_SLOT_KEYS.get(task_type or "")
             provider_id, model_id = await self._resolve_layered_backend(
-                svc, session, project, _IMAGE_LAYERED_KEYS[generation_type]
+                svc,
+                session,
+                project,
+                _IMAGE_LAYERED_KEYS[generation_type],
+                asset_slot_key=slot_key,
+                project_asset_slot_key=slot_key,
             )
             selected = ProviderModel(provider_id, model_id)
         await self._ensure_image_bucket_capability(session, selected, generation_type)

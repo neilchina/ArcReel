@@ -38,6 +38,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import ensure_dispatch_provider
 from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
+    DERIVATIVE_TASK_TYPE,
     DerivativeSheetTarget,
     resolve_derivative_target,
     split_derivative_artifact_id,
@@ -228,6 +229,7 @@ async def execute_character_derivative_task(
         project_path=project_path,
         user_id=user_id,
         image=ImageLaneRequest(generation_type="i2i"),
+        task_type=DERIVATIVE_TASK_TYPE,
     )
     ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
     currency_resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)

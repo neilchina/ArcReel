@@ -693,6 +693,7 @@ class FakeConfigResolver:
         payload: dict[str, Any] | None = None,
         *,
         generation_type: str | None = None,
+        task_type: str | None = None,
     ) -> Any:
         """解析图像供应商；``image_backend_error`` 给「项目槽位解析不出可用供应商」那条路径。"""
         from lib.config.resolver import ProviderModel
