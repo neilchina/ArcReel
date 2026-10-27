@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, BadgeCheck, ChevronLeft, ChevronRight, Eye, Shirt, Sparkles, UserRound } from "lucide-react";
+import { ArrowLeft, BadgeCheck, ChevronLeft, ChevronRight, Eye, Shirt, Sparkles } from "lucide-react";
 import { API } from "@/api";
 import { cn } from "cn";
 import { CrossfadeImage } from "@/components/canvas/shared/CrossfadeImage";
@@ -10,11 +10,12 @@ import { UnsavedChangesBar } from "@/components/shared/edit-unit/UnsavedChangesB
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { useProjectsStore } from "@/stores/projects-store";
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
-import type { AssetSheetStatusRow, Character } from "@/types";
+import type { AssetSheetStatusRow, AssetSheetType, Character, Product } from "@/types";
 import { errMsg } from "@/utils/async";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { ASSET_TYPE_ICON } from "./AssetBrowseCard";
@@ -40,7 +41,35 @@ import { GenerateButton } from "./GenerateButton";
 import { AssetWriteProvider, useAssetWrites } from "./useAssetWrites";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 
-/** 顶栏翻页：当前角色在画廊顺序里的位置与上下一个。 */
+const DESCRIPTION_PLACEHOLDER = {
+  character: "dashboard:character_desc_placeholder",
+  scene: "dashboard:scene_desc_placeholder",
+  prop: "dashboard:prop_desc_placeholder",
+  product: "dashboard:product_desc_placeholder",
+} as const satisfies Record<AssetSheetType, string>;
+
+const TYPE_LABEL = {
+  character: "dashboard:characters",
+  scene: "dashboard:scenes",
+  prop: "dashboard:props",
+  product: "dashboard:products",
+} as const satisfies Record<AssetSheetType, string>;
+
+const MIDDLE_TITLE = {
+  character: "assets:studio.definition",
+  scene: "assets:studio.definition_scene",
+  prop: "assets:studio.definition_prop",
+  product: "assets:studio.definition_product",
+} as const satisfies Record<AssetSheetType, string>;
+
+const IMAGE_ASPECT = {
+  character: "aspect-[3/4]",
+  scene: "aspect-video",
+  prop: "aspect-square",
+  product: "aspect-square",
+} as const satisfies Record<AssetSheetType, string>;
+
+/** 顶栏翻页：当前资产在画廊顺序里的位置与上下一个。 */
 export interface StudioPager {
   /** 1 起。 */
   index: number;
@@ -49,8 +78,9 @@ export interface StudioPager {
   onNext?: () => void;
 }
 
-export interface CharacterStudioProps {
+export interface AssetStudioProps {
   projectName: string;
+  assetType: AssetSheetType;
   name: string;
   asset: GalleryAssetSource;
   sheetStatus: AssetSheetStatusRow | undefined;
@@ -60,18 +90,20 @@ export interface CharacterStudioProps {
   onGenerate: (name: string) => unknown;
   /** 改名已提交时调用。 */
   onRenamed: (from: string, to: string) => void;
-  /** 返回角色列表。 */
+  /** 返回资产列表。 */
   onClose: () => void;
   pager?: StudioPager | null;
 }
 
 /**
- * 角色工作室：整屏三栏。左栏主形象（资产图 + 参考图 + 组装后的生成提示词），中栏角色设定
- * （名称、别名、描述、声音、引用记号），右栏造型（复用角色详情的衍生区块）。一个角色是一个编辑单元：
- * 描述与声音风格进入未保存修改，在设定栏底部的修改条统一保存；上传、改名、增删别名与衍生态照旧立即执行。
+ * 资产工作室：整屏三栏，角色多一栏造型。左栏主形象（资产图 + 参考图 + 组装后的生成提示词），
+ * 中栏设定（名称、别名、描述，角色加声音、商品加品牌与卖点、引用记号），右栏造型（角色的衍生区块）。
+ * 一个资产是一个编辑单元：描述与类型特定字段进入未保存修改，在设定栏底部的修改条统一保存；
+ * 上传、改名、增删别名与衍生态照旧立即执行。
  */
-export function CharacterStudio({
+export function AssetStudio({
   projectName,
+  assetType,
   name,
   asset,
   sheetStatus,
@@ -82,19 +114,20 @@ export function CharacterStudio({
   onRenamed,
   onClose,
   pager,
-}: CharacterStudioProps) {
+}: AssetStudioProps) {
   const { t } = useTranslation(["assets", "dashboard", "common"]);
-  const character = asset as Character;
-  const Icon = ASSET_TYPE_ICON.character;
+  const character = assetType === "character" ? (asset as Character) : null;
+  const product = assetType === "product" ? (asset as Product) : null;
+  const Icon = ASSET_TYPE_ICON[assetType];
 
-  const source = useMemo(() => assetFieldsOf("character", asset), [asset]);
+  const source = useMemo(() => assetFieldsOf(assetType, asset), [assetType, asset]);
   const save = useCallback(
     async (value: AssetFields, saved: AssetFields) => {
-      await updateAssetFields(projectName, "character", name, assetFieldsPatch("character", value, saved));
+      await updateAssetFields(projectName, assetType, name, assetFieldsPatch(assetType, value, saved));
       await refreshAfterWrite(projectName, t);
       return normalizeAssetFields(value);
     },
-    [projectName, name, t],
+    [projectName, assetType, name, t],
   );
   const unit = useEditUnit<AssetFields>({
     source,
@@ -107,11 +140,11 @@ export function CharacterStudio({
   useLeaveGuard({ dirty: false, saving: writes.writing || writing, save: unit.save });
 
   const saving = unit.status === "saving";
-  const occupied = useAssetBusyNames("character", projectName).has(name);
+  const occupied = useAssetBusyNames(assetType, projectName).has(name);
   const busy = generating || occupied || saving || writes.writing || writing;
 
   // 主形象资产图
-  const gallery = toGalleryAsset("character", name, character);
+  const gallery = toGalleryAsset(assetType, name, asset);
   const sheetFp = useProjectsStore((s) => (gallery.sheetPath ? s.getAssetFingerprint(gallery.sheetPath) : null));
   const sheetUrl =
     gallery.sheetPath && sheetStatus?.status !== "missing" ? API.getFileUrl(projectName, gallery.sheetPath, sheetFp) : null;
@@ -133,7 +166,9 @@ export function CharacterStudio({
         return;
       }
       try {
-        const result = await API.previewAssetPrompt(projectName, "character", name, value.description, { signal: controller.signal });
+        const result = await API.previewAssetPrompt(projectName, assetType, name, value.description, {
+          signal: controller.signal,
+        });
         if (result.unavailable) {
           setPromptError(result.unavailable);
           setPromptText(null);
@@ -152,16 +187,15 @@ export function CharacterStudio({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [projectName, name, value.description]);
+  }, [projectName, assetType, name, value.description]);
 
-  // 造型（衍生）：复用角色详情的衍生区块，保留行内编辑、保留登记与占用互斥
-  const derivatives = character.derivatives ?? {};
-
-  const voiceBinding = useProjectsStore((s) => s.currentProjectData?.character_voice_binding ?? DEFAULT_CHARACTER_VOICE_BINDING);
+  const voiceBinding = useProjectsStore(
+    (s) => s.currentProjectData?.character_voice_binding ?? DEFAULT_CHARACTER_VOICE_BINDING,
+  );
 
   const staleConfirm = useStaleRegenerateConfirm({
     projectName,
-    assetType: "character",
+    assetType,
     name,
     status: sheetStatus,
     hasSheet: Boolean(gallery.sheetPath),
@@ -169,17 +203,20 @@ export function CharacterStudio({
   });
 
   const generate = () => {
-    if (busy || rejectIfAssetBusy("character", projectName, name, t, "assets:gallery_busy_hint")) return;
-    // 资产图只由描述与参考图生成：改了描述，保存后这张图就会过期，服务端此刻的判定还看不到
+    if (busy || rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return;
+    // 资产图只由描述与原图生成：改了描述，保存后这张图就会过期，服务端此刻的判定还看不到
     const willBeStale = value.description !== unit.savedValue.description;
-    void unit.saveAndGenerate(() => {
-      if (!rejectIfAssetBusy("character", projectName, name, t, "assets:gallery_busy_hint")) return onGenerate(name);
-    }, {
-      confirm: async () => {
-        if (!(await staleConfirm.confirm({ willBeStale }))) return false;
-        return !rejectIfAssetBusy("character", projectName, name, t, "assets:gallery_busy_hint");
+    void unit.saveAndGenerate(
+      () => {
+        if (!rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return onGenerate(name);
       },
-    });
+      {
+        confirm: async () => {
+          if (!(await staleConfirm.confirm({ willBeStale }))) return false;
+          return !rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint");
+        },
+      },
+    );
   };
 
   const setField = <K extends keyof AssetFields>(key: K, next: AssetFields[K]) =>
@@ -190,8 +227,17 @@ export function CharacterStudio({
       ? t("dashboard:regenerate_design")
       : t("dashboard:generate_design");
   const describable = hasUsableDescription(value.description);
-  const aliases = character.aliases ?? [];
+  const aliases = "aliases" in asset ? (asset.aliases ?? []) : [];
   const mentionToken = `@[${name}]`;
+  const descriptionNote =
+    assetType === "character" ? t("assets:studio.description_note") : t("assets:studio.description_note_asset");
+  const originals = character
+    ? character.reference_image
+      ? [character.reference_image]
+      : []
+    : product
+      ? (product.reference_images ?? [])
+      : [];
 
   return (
     <AssetWriteProvider value={writes.track}>
@@ -201,10 +247,13 @@ export function CharacterStudio({
           <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label={t("common:close")}>
             <ArrowLeft aria-hidden />
           </Button>
-          <nav aria-label={t("assets:details_label", { name })} className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <nav
+            aria-label={t("assets:details_label", { name })}
+            className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
+          >
             <span className="truncate">{projectName}</span>
             <ChevronRight aria-hidden className="size-3 shrink-0" />
-            <span className="shrink-0">{t("dashboard:characters")}</span>
+            <span className="shrink-0">{t(TYPE_LABEL[assetType])}</span>
             <ChevronRight aria-hidden className="size-3 shrink-0" />
             <span className="shrink-0 rounded bg-primary/15 px-2 py-0.5 font-medium text-primary">{name}</span>
           </nav>
@@ -212,13 +261,16 @@ export function CharacterStudio({
         {pager ? <PagerControl pager={pager} /> : null}
       </header>
 
-      {/* 三栏主体 */}
+      {/* 三栏主体（角色多右栏造型） */}
       <main className="flex min-h-0 flex-1 overflow-hidden">
         {/* 左栏：主形象 */}
-        <section className="flex w-[400px] min-w-[340px] shrink-0 flex-col border-r border-border" aria-label={t("assets:studio.master_look")}>
-          <ColumnHeader icon={<UserRound aria-hidden className="size-4 text-primary" />} title={t("assets:studio.master_look")} />
+        <section
+          className="flex w-[400px] min-w-[340px] shrink-0 flex-col border-r border-border"
+          aria-label={t("assets:studio.master_look")}
+        >
+          <ColumnHeader icon={<Icon aria-hidden className="size-4 text-primary" />} title={t("assets:studio.master_look")} />
           <div className="relative flex-1 space-y-4 overflow-y-auto p-4 [scrollbar-gutter:stable]">
-            <div className="relative aspect-[3/4] overflow-hidden rounded-lg border border-border bg-black/40">
+            <div className={cn("relative overflow-hidden rounded-lg border border-border bg-black/40", IMAGE_ASPECT[assetType])}>
               {portraitUrl ? (
                 <button
                   type="button"
@@ -243,7 +295,7 @@ export function CharacterStudio({
               <GalleryStatusMarker marker={marker} className="absolute top-2 left-2" />
               <div className="absolute inset-x-2.5 bottom-2.5 rounded-lg border border-white/10 bg-black/50 p-2 backdrop-blur-sm">
                 <div className="truncate text-sm font-semibold text-white">{name}</div>
-                <div className="truncate text-xs text-white/70">{t("dashboard:characters")}</div>
+                <div className="truncate text-xs text-white/70">{t(TYPE_LABEL[assetType])}</div>
               </div>
             </div>
 
@@ -271,19 +323,21 @@ export function CharacterStudio({
               <p className="text-xs text-muted-foreground">{t("assets:sheet_description_required")}</p>
             )}
 
-            <div>
-              <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {t("assets:original_section")}
-              </span>
-              <AssetOriginalsField
-                projectName={projectName}
-                name={name}
-                assetType="character"
-                paths={character.reference_image ? [character.reference_image] : []}
-                readOnly={readOnly}
-                busy={busy}
-              />
-            </div>
+            {character || product ? (
+              <div>
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  {t("assets:original_section")}
+                </span>
+                <AssetOriginalsField
+                  projectName={projectName}
+                  name={name}
+                  assetType={product ? "product" : "character"}
+                  paths={originals}
+                  readOnly={readOnly}
+                  busy={busy}
+                />
+              </div>
+            ) : null}
 
             <div className="overflow-hidden rounded-lg border border-primary/50 shadow-sm">
               <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2">
@@ -315,13 +369,9 @@ export function CharacterStudio({
           </div>
         </section>
 
-        {/* 中栏：角色设定 */}
-        <section className="flex min-w-[360px] flex-1 flex-col border-r border-border" aria-label={t("assets:studio.definition")}>
-          <ColumnHeader
-            icon={<BadgeCheck aria-hidden className="size-4 text-primary" />}
-            title={t("assets:studio.definition")}
-            hint={t("assets:aliases_hint")}
-          />
+        {/* 中栏：设定 */}
+        <section className="flex min-w-[360px] flex-1 flex-col border-r border-border" aria-label={t(MIDDLE_TITLE[assetType])}>
+          <ColumnHeader icon={<BadgeCheck aria-hidden className="size-4 text-primary" />} title={t(MIDDLE_TITLE[assetType])} />
           <div className="relative flex-1 space-y-5 overflow-y-auto p-5 [scrollbar-gutter:stable]">
             <div>
               <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -330,7 +380,7 @@ export function CharacterStudio({
               <EditableAssetName
                 projectName={projectName}
                 name={name}
-                assetType="character"
+                assetType={assetType}
                 readOnly={readOnly}
                 busy={busy}
                 onRenamed={onRenamed}
@@ -340,19 +390,21 @@ export function CharacterStudio({
               />
             </div>
 
-            <div>
-              <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {t("assets:aliases_label")}
-              </span>
-              <AssetAliasesField
-                projectName={projectName}
-                name={name}
-                assetType="character"
-                aliases={aliases}
-                readOnly={readOnly}
-                busy={busy}
-              />
-            </div>
+            {assetType !== "product" && !(readOnly && aliases.length === 0) ? (
+              <div>
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  {t("assets:aliases_label")}
+                </span>
+                <AssetAliasesField
+                  projectName={projectName}
+                  name={name}
+                  assetType={assetType}
+                  aliases={aliases}
+                  readOnly={readOnly}
+                  busy={busy}
+                />
+              </div>
+            ) : null}
 
             <div>
               <div className="mb-1.5 flex items-center justify-between gap-2">
@@ -365,7 +417,7 @@ export function CharacterStudio({
                     beforeOpen={unit.save}
                     saveFirst={unit.dirty}
                     disabled={saving}
-                    load={(signal) => API.previewAssetPrompt(projectName, "character", name, value.description, { signal })}
+                    load={(signal) => API.previewAssetPrompt(projectName, assetType, name, value.description, { signal })}
                   />
                 )}
               </div>
@@ -374,28 +426,62 @@ export function CharacterStudio({
                 readOnly={readOnly}
                 onChange={(e) => setField("description", e.target.value)}
                 rows={5}
-                placeholder={t("dashboard:character_desc_placeholder")}
+                placeholder={t(DESCRIPTION_PLACEHOLDER[assetType])}
                 aria-label={t("assets:field.description")}
                 className="resize-none"
               />
               <div className="mt-1 flex items-end justify-between gap-2">
-                <p className="text-xs text-muted-foreground">{t("assets:studio.description_note")}</p>
+                <p className="text-xs text-muted-foreground">{descriptionNote}</p>
                 <span className="shrink-0 font-mono text-xs text-muted-foreground">{value.description.length}</span>
               </div>
             </div>
 
-            <div className="rounded-lg border border-border bg-card/40 p-4">
-              <CharacterVoiceField
-                projectName={projectName}
-                name={name}
-                voiceStyle={value.voiceStyle}
-                onVoiceStyleChange={(next) => setField("voiceStyle", next)}
-                referenceAudio={character.reference_audio}
-                voiceBinding={voiceBinding}
-                readOnly={readOnly}
-                busy={busy}
-              />
-            </div>
+            {character ? (
+              <div className="rounded-lg border border-border bg-card/40 p-4">
+                <CharacterVoiceField
+                  projectName={projectName}
+                  name={name}
+                  voiceStyle={value.voiceStyle}
+                  onVoiceStyleChange={(next) => setField("voiceStyle", next)}
+                  referenceAudio={character.reference_audio}
+                  voiceBinding={voiceBinding}
+                  readOnly={readOnly}
+                  busy={busy}
+                />
+              </div>
+            ) : null}
+
+            {product ? (
+              <div>
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  {t("dashboard:product_brand_label")}
+                </span>
+                <Input
+                  value={value.brand}
+                  readOnly={readOnly}
+                  onChange={(e) => setField("brand", e.target.value)}
+                  placeholder={t("dashboard:product_brand_placeholder")}
+                  aria-label={t("dashboard:product_brand_label")}
+                />
+              </div>
+            ) : null}
+
+            {product ? (
+              <div>
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  {t("dashboard:product_selling_points_label")}
+                </span>
+                <Textarea
+                  value={value.sellingPoints}
+                  readOnly={readOnly}
+                  onChange={(e) => setField("sellingPoints", e.target.value)}
+                  rows={4}
+                  placeholder={t("dashboard:product_selling_points_placeholder")}
+                  aria-label={t("dashboard:product_selling_points_label")}
+                  className="resize-none"
+                />
+              </div>
+            ) : null}
 
             <div className="flex items-center justify-between gap-2 rounded-lg border border-border p-3">
               <div className="flex min-w-0 items-center gap-2">
@@ -412,24 +498,26 @@ export function CharacterStudio({
           )}
         </section>
 
-        {/* 右栏：造型（衍生） */}
-        <section className="flex min-w-[420px] flex-1 flex-col" aria-label={t("assets:derivatives")}>
-          <ColumnHeader
-            icon={<Shirt aria-hidden className="size-4 text-primary" />}
-            title={t("assets:derivatives")}
-            hint={t("assets:studio.forms_subtitle")}
-          />
-          <div className="relative flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]">
-            <CharacterDerivativesField
-              projectName={projectName}
-              characterName={name}
-              derivatives={derivatives}
-              ownerSheet={character.character_sheet}
-              readOnly={readOnly}
-              busy={busy}
+        {/* 右栏：造型（角色衍生） */}
+        {character ? (
+          <section className="flex min-w-[420px] flex-1 flex-col" aria-label={t("assets:derivatives")}>
+            <ColumnHeader
+              icon={<Shirt aria-hidden className="size-4 text-primary" />}
+              title={t("assets:derivatives")}
+              hint={t("assets:studio.forms_subtitle")}
             />
-          </div>
-        </section>
+            <div className="relative flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]">
+              <CharacterDerivativesField
+                projectName={projectName}
+                characterName={name}
+                derivatives={character.derivatives ?? {}}
+                ownerSheet={character.character_sheet}
+                readOnly={readOnly}
+                busy={busy}
+              />
+            </div>
+          </section>
+        ) : null}
       </main>
 
       <AssetImageDialog
