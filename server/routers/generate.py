@@ -780,12 +780,16 @@ async def generate_character_derivative(
     derivative_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerateAssetSheetRequest | None = None,
 ):
     """提交角色衍生资产图生成任务到队列，立即返回 task_id。
 
     衍生图是对本体资产图的一次编辑，指令由衍生自己的外观变化描述加固定守卫构成，请求体
     因此没有 prompt——入队与执行都按当次的项目状态取，避免两侧各持一份指令。本体没有
     资产图、或衍生还没写变化描述时在此拒绝，不建任务。
+
+    可选的 ``image_provider`` / ``image_model`` 作本次生成端点覆盖（优先级最高，写 payload 层）；
+    缺省时按当前配置解析默认 i2i 端点并校验已配置。
     """
 
     def _sync() -> tuple[dict, DerivativeSheetSource]:
@@ -797,13 +801,23 @@ async def generate_character_derivative(
     except KeyError as exc:
         raise NotFoundError("character_not_found", name=char_name) from exc
 
-    provider_id = await _require_i2i_image_provider_configured(project, task_type=DERIVATIVE_TASK_TYPE)
+    image_provider = req.image_provider if req else None
+    image_model = req.image_model if req else None
+    if image_provider:
+        provider_id = image_provider
+        extra_payload: dict[str, str] | None = {"image_provider": image_provider}
+        if image_model:
+            extra_payload["image_model"] = image_model
+    else:
+        provider_id = await _require_i2i_image_provider_configured(project, task_type=DERIVATIVE_TASK_TYPE)
+        extra_payload = None
 
     spec = TaskSpec.from_request(
         task_type=DERIVATIVE_TASK_TYPE,
         media_type="image",
         resource_id=source.target.artifact_id,
         prompt=build_derivative_sheet_instruction(source.description),
+        extra_payload=extra_payload,
     )
     result = await get_generation_queue().enqueue_task(
         project_name=project_name,

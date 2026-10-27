@@ -1004,11 +1004,16 @@ class API {
   static async generateCharacterDerivative(
     projectName: string,
     charName: string,
-    derivativeName: string
+    derivativeName: string,
+    endpoint?: { image_provider: string; image_model?: string }
   ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}/derivatives/${encodeURIComponent(derivativeName)}`,
-      { method: "POST" }
+      {
+        method: "POST",
+        // 无覆盖时不带请求体，保持既有调用形态
+        body: endpoint ? JSON.stringify(endpoint) : undefined,
+      }
     );
   }
 

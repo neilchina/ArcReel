@@ -27,6 +27,8 @@ interface CharacterDerivativesFieldProps {
   readOnly: boolean;
   /** 详情里其他写入或本体生成占用中。 */
   busy: boolean;
+  /** 本角色衍生生成共用的图像端点覆盖（"" / 省略 = 跟随当前配置默认）。 */
+  imageEndpoint?: string;
 }
 
 /**
@@ -40,6 +42,7 @@ export function CharacterDerivativesField({
   ownerSheet,
   readOnly,
   busy,
+  imageEndpoint,
 }: CharacterDerivativesFieldProps) {
   const { t } = useTranslation(["assets", "common"]);
   const ownerFp = useProjectsStore((s) => (ownerSheet ? s.getAssetFingerprint(ownerSheet) : null));
@@ -105,6 +108,7 @@ export function CharacterDerivativesField({
                     ownerHasSheet={Boolean(ownerSheet)}
                     readOnly={readOnly}
                     busy={busy}
+                    imageEndpoint={imageEndpoint}
                     onView={(image) => setViewing({ ...image, open: true })}
                     onRenamed={handleRenamed}
                     onSheetsChanged={refresh}

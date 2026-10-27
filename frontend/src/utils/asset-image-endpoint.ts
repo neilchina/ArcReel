@@ -1,11 +1,14 @@
 import type { AssetSheetType } from "@/types";
 
 /**
- * 资产图本体任务的资产类别默认端点槽位键（docs/adr/0098）。本体任务用资产类型本身作
- * task_type；角色衍生恒为 ``character_derivative``（此处不涉及，衍生有自己的默认端点）。
+ * 资产图端点槽位类型：本体任务用资产类型本身作 task_type；角色衍生恒为 ``character_derivative``，
+ * 与本体独立的默认端点槽位（docs/adr/0098）。
  */
-export const ASSET_IMAGE_SLOT_KEY: Record<AssetSheetType, string> = {
+export type AssetImageEndpointType = AssetSheetType | "character_derivative";
+
+export const ASSET_IMAGE_SLOT_KEY: Record<AssetImageEndpointType, string> = {
   character: "default_image_backend_character",
+  character_derivative: "default_image_backend_character_derivative",
   scene: "default_image_backend_scene",
   prop: "default_image_backend_prop",
   product: "default_image_backend_product",
@@ -41,7 +44,7 @@ interface ResolutionLayer {
  * 链内：它由调用点单独持有，生效端点只反映未覆盖时的配置。
  */
 export function resolveAssetImageEndpoint(args: {
-  assetType: AssetSheetType;
+  assetType: AssetImageEndpointType;
   useImageToImage: boolean;
   project: object | null | undefined;
   globalSettings: object | null | undefined;

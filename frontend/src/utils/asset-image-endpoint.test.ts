@@ -6,6 +6,7 @@ describe("ASSET_IMAGE_SLOT_KEY", () => {
   it("maps each asset type to its project-layer default endpoint slot key", () => {
     expect(ASSET_IMAGE_SLOT_KEY).toEqual({
       character: "default_image_backend_character",
+      character_derivative: "default_image_backend_character_derivative",
       scene: "default_image_backend_scene",
       prop: "default_image_backend_prop",
       product: "default_image_backend_product",
@@ -114,5 +115,26 @@ describe("resolveAssetImageEndpoint", () => {
         globalSettings: { default_image_backend_scene: "global/scene" },
       }),
     ).toEqual({ value: "project/default", source: "project_default" });
+  });
+
+  it("resolves character derivatives against their own slot, distinct from the main character sheet", () => {
+    const derivative = {
+      assetType: "character_derivative" as const,
+      useImageToImage: true,
+      project: {
+        default_image_backend_character: "vertex/main-sheet",
+        default_image_backend_character_derivative: "openai/derivative",
+      },
+      globalSettings: { default_image_backend_character: "global/main-sheet" },
+    };
+    expect(resolveAssetImageEndpoint(derivative)).toEqual({
+      value: "openai/derivative",
+      source: "project_slot",
+    });
+    // 没配衍生槽位时落回本体槽位之外的 i2i 桶 / 默认，而不是本体的 character 槽位
+    expect(resolveAssetImageEndpoint({ ...derivative, project: { image_provider_i2i: "openai/i2i" } })).toEqual({
+      value: "openai/i2i",
+      source: "project_bucket",
+    });
   });
 });

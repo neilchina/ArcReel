@@ -3,8 +3,11 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { ModelCandidatesResponse, SystemConfigSettings } from "@/types/system";
-import type { AssetSheetType } from "@/types";
-import { resolveAssetImageEndpoint, type ResolvedAssetImageEndpoint } from "@/utils/asset-image-endpoint";
+import {
+  resolveAssetImageEndpoint,
+  type AssetImageEndpointType,
+  type ResolvedAssetImageEndpoint,
+} from "@/utils/asset-image-endpoint";
 
 export interface AssetImageEndpoints {
   /** 全部图像端点候选（默认层全量），"provider/model" 形态。 */
@@ -37,7 +40,7 @@ function snapshotFor(language: string): CatalogSnapshot | null {
   return cached;
 }
 
-export function useAssetImageEndpoints(assetType: AssetSheetType, useImageToImage: boolean): AssetImageEndpoints {
+export function useAssetImageEndpoints(assetType: AssetImageEndpointType, useImageToImage: boolean): AssetImageEndpoints {
   const { i18n } = useTranslation();
   const language = i18n.language;
   const project = useProjectsStore((s) => s.currentProjectData);

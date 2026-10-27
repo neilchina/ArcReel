@@ -3,17 +3,16 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import type { ProjectData } from "@/types/project";
-import type { AssetSheetType } from "@/types";
 import { errMsg } from "@/utils/async";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { useAssetImageEndpoints } from "@/hooks/useAssetImageEndpoints";
-import { ASSET_IMAGE_SLOT_KEY } from "@/utils/asset-image-endpoint";
+import { ASSET_IMAGE_SLOT_KEY, type AssetImageEndpointType } from "@/utils/asset-image-endpoint";
 import { Button } from "@/components/ui/button";
 import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 
 interface AssetEndpointSelectorProps {
   projectName: string;
-  assetType: AssetSheetType;
+  assetType: AssetImageEndpointType;
   useImageToImage: boolean;
   /** 覆盖值（"" = 跟随当前生效端点，本次生成不带 payload 覆盖）。 */
   value: string;

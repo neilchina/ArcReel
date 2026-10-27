@@ -1075,6 +1075,63 @@ class TestGenerateRouter:
         assert [(item["type"], item["loc"][-1]) for item in resp.json()["detail"]] == [("extra_forbidden", "prompt")]
         assert fake_queue.calls == []
 
+    def _client_with_character_derivative(self, tmp_path, monkeypatch):
+        """Alice 带一个已写变化描述的衍生（正脸），衍生图路由可寻址。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["Alice"]["derivatives"] = {
+            "正脸": {"description": "面部特写", "character_sheet": ""},
+        }
+        fake_queue = _FakeQueue()
+        return _client(monkeypatch, fake_pm, fake_queue), fake_queue
+
+    def test_character_derivative_enqueue_with_endpoint_override_lands_in_payload(self, tmp_path, monkeypatch):
+        """衍生图与资产图同口径：请求体 image_provider/image_model 进 payload，仅覆盖本次。"""
+        client, fake_queue = self._client_with_character_derivative(tmp_path, monkeypatch)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice/derivatives/正脸",
+                json={"image_provider": "openai", "image_model": "gpt-image-1"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        call = fake_queue.calls[0]
+        assert call["provider_id"] == "openai"
+        assert call["payload"]["image_provider"] == "openai"
+        assert call["payload"]["image_model"] == "gpt-image-1"
+        assert call["payload"]["prompt"]  # 衍生指令（变化描述 + 守卫）仍在 payload
+
+    def test_character_derivative_enqueue_with_provider_only_override_omits_model(self, tmp_path, monkeypatch):
+        client, fake_queue = self._client_with_character_derivative(tmp_path, monkeypatch)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice/derivatives/正脸",
+                json={"image_provider": "gemini"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        call = fake_queue.calls[0]
+        assert call["provider_id"] == "gemini"
+        assert call["payload"]["image_provider"] == "gemini"
+        assert "image_model" not in call["payload"]
+
+    def test_character_derivative_enqueue_without_override_uses_configured_i2i_default(self, tmp_path, monkeypatch):
+        """无覆盖时落回 i2i 默认端点（按 character_derivative 槽位解析），payload 不带 image_provider。"""
+        client, fake_queue = self._client_with_character_derivative(tmp_path, monkeypatch)
+
+        async def _fake_i2i_default(project, *, task_type=None):
+            assert task_type == "character_derivative"
+            return "vertex/deri-model"
+
+        monkeypatch.setattr(generate, "_require_i2i_image_provider_configured", _fake_i2i_default)
+        with client:
+            resp = client.post("/api/v1/projects/demo/generate/character/Alice/derivatives/正脸")
+
+        assert resp.status_code == 200, resp.text
+        call = fake_queue.calls[0]
+        assert call["provider_id"] == "vertex/deri-model"
+        assert call["payload"].get("image_provider") is None
+
     def test_error_paths(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

@@ -67,6 +67,8 @@ export interface CharacterDerivativeRowProps {
   readOnly: boolean;
   /** 详情里其他写入或本体生成占用中：本条的写入入口一起禁用。 */
   busy: boolean;
+  /** 本次衍生生成用的图像端点覆盖（"" / 省略 = 跟随当前配置默认）。 */
+  imageEndpoint?: string;
   onView: (image: { src: string; alt: string; title: string }) => void;
   /** 改名已提交、项目数据刷新之前调用，让这一行沿用原来的编辑单元。 */
   onRenamed: (from: string, to: string) => void;
@@ -89,6 +91,7 @@ export function CharacterDerivativeRow({
   ownerHasSheet,
   readOnly,
   busy,
+  imageEndpoint,
   onView,
   onRenamed,
   onSheetsChanged,
@@ -175,7 +178,7 @@ export function CharacterDerivativeRow({
       return;
     }
     try {
-      await enqueueCharacterDerivative(projectName, characterName, name);
+      await enqueueCharacterDerivative(projectName, characterName, name, imageEndpoint);
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     }

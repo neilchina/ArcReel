@@ -234,11 +234,17 @@ export async function enqueueCharacterDerivative(
   projectName: string,
   characterName: string,
   derivativeName: string,
+  endpoint?: string,
 ): Promise<EnqueueResult> {
   const resourceId = derivativeResourceId(characterName, derivativeName);
+  const endpointOpts = imageEndpointOptions(endpoint);
   const res = await submit(
     [markResource(projectName, "character_derivative", resourceId, "character_derivative")],
-    () => API.generateCharacterDerivative(projectName, characterName, derivativeName),
+    // 无覆盖时只传三个参数，保持本次生成端点可省略
+    () =>
+      endpointOpts
+        ? API.generateCharacterDerivative(projectName, characterName, derivativeName, endpointOpts)
+        : API.generateCharacterDerivative(projectName, characterName, derivativeName),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, res.message);

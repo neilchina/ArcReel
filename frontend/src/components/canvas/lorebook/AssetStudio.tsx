@@ -201,6 +201,9 @@ export function AssetStudio({
   const useImageToImage = sheetStatus?.image_to_image ?? false;
   const runGenerate = () => (endpointValue ? onGenerate(name, endpointValue) : onGenerate(name));
 
+  // 角色衍生的共用图像端点：与本体独立的默认端点槽位（character_derivative），本次衍生生成可临时覆盖
+  const [derivativeEndpointValue, setDerivativeEndpointValue] = useState("");
+
   const staleConfirm = useStaleRegenerateConfirm({
     projectName,
     assetType,
@@ -527,6 +530,18 @@ export function AssetStudio({
               hint={t("assets:studio.forms_subtitle")}
             />
             <div className="relative flex-1 overflow-y-auto p-4 [scrollbar-gutter:stable]">
+              {readOnly ? null : (
+                <div className="mb-3">
+                  <AssetEndpointSelector
+                    projectName={projectName}
+                    assetType="character_derivative"
+                    useImageToImage
+                    value={derivativeEndpointValue}
+                    onChange={setDerivativeEndpointValue}
+                    busy={busy}
+                  />
+                </div>
+              )}
               <CharacterDerivativesField
                 projectName={projectName}
                 characterName={name}
@@ -534,6 +549,7 @@ export function AssetStudio({
                 ownerSheet={character.character_sheet}
                 readOnly={readOnly}
                 busy={busy}
+                imageEndpoint={derivativeEndpointValue}
               />
             </div>
           </section>
