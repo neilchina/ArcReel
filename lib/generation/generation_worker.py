@@ -439,7 +439,9 @@ async def _extract_provider(task: dict[str, Any]) -> str:
             resolved = await resolver.resolve_audio_backend(project, payload)
         else:
             generation_type = "i2i" if task.get("task_type") in I2I_ONLY_TASK_TYPES else "t2i"
-            resolved = await resolver.resolve_image_backend(project, payload, generation_type=generation_type)
+            resolved = await resolver.resolve_image_backend(
+                project, payload, generation_type=generation_type, task_type=task.get("task_type")
+            )
     except Exception:
         logger.debug("provider 解析失败，回退 DEFAULT_PROVIDER 仅供限流路由", exc_info=True)
         return DEFAULT_PROVIDER

@@ -11,7 +11,7 @@ fingerprint 或可执行请求快照；worker 开始处理时必须重新投影�
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
@@ -23,9 +23,11 @@ from lib.config.resolver import (
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
     DEFAULT_PLANNED_DURATION_SECONDS,
+    ConfiguredReferenceVideoIdentity,
     VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsFailure,
+    VideoRequestIdentity,
     audio_switch_conflict,
     evaluate_video_request_facts,
 )
@@ -240,27 +242,48 @@ class ReferenceAssetAvailability(Protocol):
 
 VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
 
-#: 按任务类型桶取视频请求事实。读侧用 :func:`configured_reference_request_facts`，执行侧交出
-#: lane 已求得的那一份；测试直接返回构造好的结果对象或失败对象。
-ReferenceRequestFactsLookup = Callable[[VideoGenerationType], Awaitable[VideoRequestFactsResult]]
+
+class ReferenceRequestFactsLookup(Protocol):
+    """按任务类型桶 × 可用参考图数取视频请求事实。读侧用 :func:`configured_reference_request_facts`，
+    执行侧交出 lane 已求得的那一份；测试直接返回构造好的结果对象或失败对象。
+
+    ``reference_count`` 可缺省（r2v 单元传可用参考图数，裁剪前；i2v 单元为 0 或省略）：r2v
+    身份依赖 N，读侧据此与执行侧选到同一个 I{N} 端点（``docs/adr/0086``）。只关心 i2v 的
+    调用方可省略该参数（生产 projector 恒传）。
+    """
+
+    def __call__(
+        self,
+        generation_type: VideoGenerationType,
+        reference_count: int | None = None,
+    ) -> Awaitable[VideoRequestFactsResult]: ...
 
 
 def configured_reference_request_facts(project: dict, resolver: ConfigResolver) -> ReferenceRequestFactsLookup:
-    """读侧：以当前配置为身份，对参考路线逐桶求值视频请求事实；同一查找内每个桶只求值一次。"""
+    """读侧：以当前配置为身份，对参考路线逐桶求值视频请求事实；同一查找内每个 (桶, N) 只求值一次。"""
 
-    evaluated: dict[VideoGenerationType, VideoRequestFactsResult] = {}
+    evaluated: dict[tuple[VideoGenerationType, int | None], VideoRequestFactsResult] = {}
 
-    async def lookup(generation_type: VideoGenerationType) -> VideoRequestFactsResult:
-        result = evaluated.get(generation_type)
+    async def lookup(
+        generation_type: VideoGenerationType, reference_count: int | None = None
+    ) -> VideoRequestFactsResult:
+        key = (generation_type, reference_count)
+        result = evaluated.get(key)
         if result is None:
+            # r2v 单元按可用参考图数精确选端点（I{N}）；i2v 单元按配置身份求值，忽略 N。
+            identity: VideoRequestIdentity = (
+                ConfiguredReferenceVideoIdentity(reference_count)
+                if generation_type == "r2v" and reference_count is not None
+                else CONFIGURED_VIDEO_IDENTITY
+            )
             result = await evaluate_video_request_facts(
                 project,
                 route="reference_video",
                 generation_type=generation_type,
-                identity=CONFIGURED_VIDEO_IDENTITY,
+                identity=identity,
                 resolver=resolver,
             )
-            evaluated[generation_type] = result
+            evaluated[key] = result
         return result
 
     return lookup
@@ -550,7 +573,9 @@ class ReferenceUnitRequestProjector:
 
         facts: VideoRequestFacts | None = None
         try:
-            evaluated = await self._request_facts(hydrated_generation_type)
+            # N 恒取裁剪前的可用参考图数：r2v 身份按它精确选 I{N}；取裁剪后长度会自我验证成
+            # 任意大槽端点、破坏严格路由。i2v 单元 available 为空、N=0，由 lookup 忽略。
+            evaluated = await self._request_facts(hydrated_generation_type, len(available))
         except Exception:
             evaluated = VideoRequestFactsFailure(
                 "reference_capability_unavailable", (("capability", hydrated_generation_type),)

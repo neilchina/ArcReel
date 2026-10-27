@@ -1931,9 +1931,11 @@ def test_prompt_preview_renders_draft_with_projected_references_without_saving(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["unavailable"] is None
-    assert "<酒馆>@图片1" in body["text"]
-    assert "@图片2" not in body["text"]
-    assert "<酒馆> 门口，<张三> 推开门。" in body["text"]
+    # 上限 1：只有首现的酒馆随请求发图 → <Subject 1>/<Picture 1>；张三被裁、无第二张图
+    assert "<Subject 1> is the scene 酒馆, shown in <Picture 1>." in body["text"]
+    assert "<Picture 2>" not in body["text"]
+    # 被裁的张三在正文里退为名字记号，仍是画面主体
+    assert "<Subject 1> 门口，<张三> 推开门。" in body["text"]
     assert body["references"] == [{"type": "scene", "name": "酒馆", "path": "scenes/酒馆.png"}]
     assert any("上限 1" in warning for warning in body["warnings"])
     saved = reference_videos_client.get("/api/v1/projects/demo/reference-videos/episodes/1/units").json()
@@ -2035,8 +2037,8 @@ def test_prompt_preview_binds_only_available_audio_from_projected_voice_capabili
     )
     assert response.status_code == 200
     body = response.json()
-    assert "<张三>@图片1" in body["text"]
-    assert "<张三>说 {进来吧}" in body["text"]
+    assert "<Subject 1> is the character 张三, shown in <Picture 1>." in body["text"]
+    assert "<Subject 1>说 {进来吧}" in body["text"]
     assert "声音特征：低沉" in body["text"]
     assert "暖色电影质感" in body["text"]
     assert ("@音频1" in body["text"]) is audio_exists

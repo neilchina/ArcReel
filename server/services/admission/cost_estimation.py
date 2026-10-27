@@ -926,6 +926,7 @@ async def estimate_image_batch_cost(
     project: dict[str, Any],
     lanes: Sequence[ImageLane],
     *,
+    task_types: Sequence[str | None] | None = None,
     resolver: ConfigResolver,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> CostBreakdown | None:
@@ -933,26 +934,36 @@ async def estimate_image_batch_cost(
 
     每张图按自己的生图通道计价：文生图与图生图是两个正交的能力槽，可能配置成不同的模型。
     分辨率档与执行侧同样按通道解析出的模型取，取不到时按保底档计价。
+
+    ``task_types`` 与 ``lanes`` 等长时，按（通道，任务类型）组合解析执行身份——资产图任务的
+    资产槽位默认端点（docs/adr/0098）据此参与计价；不传则整批按通道解析（分镜图等无槽位任务）。
     """
 
-    counts = Counter(lanes)
+    if task_types is not None and len(task_types) != len(lanes):
+        raise ValueError("task_types must match lanes length")
+    pairs: list[tuple[ImageLane, str | None]]
+    if task_types is not None:  # noqa: SIM108 -- 分支需收窄 pairs 的不变 list 类型
+        pairs = list(zip(lanes, task_types, strict=True))
+    else:
+        pairs = [(lane, None) for lane in lanes]
+    counts = Counter(pairs)
     if not counts:
         return {}
-    identities: dict[ImageLane, tuple[str, str, str | None]] = {}
+    identities: dict[tuple[ImageLane, str | None], tuple[str, str, str | None]] = {}
     try:
         async with resolver.session() as r:
-            for lane in counts:
-                resolved = await r.resolve_image_backend(project, None, generation_type=lane)
+            for lane, task_type in counts:
+                resolved = await r.resolve_image_backend(project, None, generation_type=lane, task_type=task_type)
                 try:
                     resolution = await r.resolve_resolution(project, resolved.provider_id, resolved.model_id or "")
                 except (ValueError, SQLAlchemyError):
                     resolution = None
-                identities[lane] = (resolved.provider_id, resolved.model_id or "", resolution)
+                identities[(lane, task_type)] = (resolved.provider_id, resolved.model_id or "", resolution)
         total: CostBreakdown = {}
         async with session_factory() as session:
             repo = CustomProviderRepository(session)
-            for lane, count in counts.items():
-                provider, model, resolution = identities[lane]
+            for (lane, task_type), count in counts.items():
+                provider, model, resolution = identities[(lane, task_type)]
                 price = await repo.resolve_price(provider, model)
                 amount, currency = cost_calculator.calculate_cost(
                     provider,

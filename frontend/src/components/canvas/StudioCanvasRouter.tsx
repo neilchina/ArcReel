@@ -354,37 +354,37 @@ export function StudioCanvasRouter() {
   ]);
 
   // ---- Asset sheet generation callbacks ----
-  const handleGenerateCharacter = useCallback(async (name: string) => {
+  const handleGenerateCharacter = useCallback(async (name: string, endpoint?: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueCharacter(currentProjectName, name);
+      await enqueueCharacter(currentProjectName, name, endpoint);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName]);
 
-  const handleGenerateScene = useCallback(async (name: string) => {
+  const handleGenerateScene = useCallback(async (name: string, endpoint?: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueScene(currentProjectName, name);
+      await enqueueScene(currentProjectName, name, endpoint);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName]);
 
-  const handleGenerateProp = useCallback(async (name: string) => {
+  const handleGenerateProp = useCallback(async (name: string, endpoint?: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueProp(currentProjectName, name);
+      await enqueueProp(currentProjectName, name, endpoint);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName]);
 
-  const handleGenerateProduct = useCallback(async (name: string) => {
+  const handleGenerateProduct = useCallback(async (name: string, endpoint?: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueProduct(currentProjectName, name);
+      await enqueueProduct(currentProjectName, name, endpoint);
     } catch (err) {
       useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
     }

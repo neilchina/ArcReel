@@ -311,7 +311,9 @@ async def add_unit(
         (hydration,) = await asyncio.to_thread(
             hydrate_reference_units, project, await _project_path(project_name), [{"text": req.prompt}]
         )
-        duration_seconds = default_unit_duration(await request_facts(hydration.hydrated_generation_type), project)
+        duration_seconds = default_unit_duration(
+            await request_facts(hydration.hydrated_generation_type, len(hydration.available_assets)), project
+        )
 
     units = current.get("video_units") if isinstance(current.get("video_units"), list) else []
     if req.after_unit_id is not None:

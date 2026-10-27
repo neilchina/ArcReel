@@ -23,6 +23,7 @@ from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
 from lib.config.repository import mask_secret
+from lib.config.resolver import IMAGE_ASSET_SLOT_KEYS
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
@@ -109,6 +110,8 @@ _BACKEND_SETTING_KEYS = (
     "default_image_backend",
     "default_image_backend_t2i",
     "default_image_backend_i2i",
+    # 图片资产槽位（docs/adr/0098）：键位与 lib.config.resolver.IMAGE_ASSET_SLOT_KEYS 一致
+    *IMAGE_ASSET_SLOT_KEYS.values(),
     "default_text_backend",
     "default_audio_backend",
     "text_backend_simple",
@@ -189,9 +192,11 @@ class ModelInput(BaseModel):
         非视频类 endpoint 保持 None。
 
         ComfyUI 端点不走那套启发式，也不把空集当缺省：时长这一维由节点绑定决定（``docs/adr/0082``）。
-        ``frames`` 未绑定或读不到帧率来源时这份 workflow 的时长根本不由 ArcReel 驱动，服务端把该
-        模型行的档位钉死为空集——用户在界面上改不动它，改了也无处生效；两者齐备时默认只含 workflow
-        的原生时长，用户可在模型行里增删。模型名在这条通道上与 workflow 能出多长毫无关系。
+        原生档位由两条推导线按序给出：frames↔fps 反算，或 ``duration`` 入口（含 ``(input:duration)``
+        标题标记）的字面秒数。两条线都推不出来时这份 workflow 的时长根本不由 ArcReel 驱动，服务端
+        把该模型行的档位钉死为空集——用户在界面上改不动它，改了也无处生效；推得出来时默认只含
+        workflow 的原生时长，用户可在模型行里增删（如把 16 秒改写成 1-30 整段）。模型名在这条
+        通道上与 workflow 能出多长毫无关系。
 
         媒体类型读调用方已解析好的 spec：``ce-`` 端点的媒体类型写在它那份定义里，键前缀推不出来。
         """
@@ -1197,9 +1202,14 @@ def _check_openai(
     """通过 models.list() 验证 OpenAI 兼容 API。"""
     from openai import OpenAI
 
+    from lib.backends.proxy_bypass import openai_proxy_http_client
     from lib.config.url_utils import ensure_openai_base_url
 
-    client = (client_factory or OpenAI)(api_key=api_key, base_url=ensure_openai_base_url(base_url))
+    effective_url = ensure_openai_base_url(base_url)
+    # base_url 内网时注入绕系统代理的 http_client（8001 这类自建兼容端点不被代理劫持回 502）；
+    # 公网 / 判不准时为 None，不传 http_client、维持 SDK 默认走系统代理。
+    http_client = openai_proxy_http_client(effective_url)
+    client = (client_factory or OpenAI)(api_key=api_key, base_url=effective_url, http_client=http_client)
     models = client.models.list()
     count = sum(1 for _ in models)
     return ConnectivityCheckResponse(
@@ -1219,10 +1229,17 @@ def _check_google(
     """通过 models.list() 验证 Google genai API。"""
     from google import genai
 
+    from lib.backends.proxy_bypass import genai_client_args
     from lib.config.url_utils import ensure_google_base_url
 
     effective_url = ensure_google_base_url(base_url)
     http_options: genai.types.HttpOptionsDict | None = {"base_url": effective_url} if effective_url else None
+    # base_url 内网时让 genai 内部 httpx client 对该 host 绕系统代理；公网 / 判不准时不加
+    # client_args、维持 SDK 默认。
+    if http_options is not None:
+        client_args = genai_client_args(effective_url)
+        if client_args is not None:
+            http_options["client_args"] = client_args
     client = (client_factory or genai.Client)(api_key=api_key, http_options=http_options)
     pager = client.models.list()
     count = sum(1 for _ in pager)
@@ -1257,7 +1274,7 @@ async def _check_comfyui(
     ``_run_connectivity_check`` 的失败出口回显，与上游不可达同一形态。
     """
     url = base_url.strip().rstrip("/") + _COMFYUI_SYSTEM_STATS_PATH
-    async with artifact_http_client(timeout=_CONNECTIVITY_CHECK_TIMEOUT) as client:
+    async with artifact_http_client(timeout=_CONNECTIVITY_CHECK_TIMEOUT, bypass_proxy_for=base_url) as client:
         resp = await client.get(url, headers=_comfyui_probe_headers(api_key))
     raise_for_status_redacted(resp)
     payload = resp.json()
