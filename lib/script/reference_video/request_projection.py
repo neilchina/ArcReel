@@ -11,7 +11,7 @@ fingerprint 或可执行请求快照；worker 开始处理时必须重新投影�
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
