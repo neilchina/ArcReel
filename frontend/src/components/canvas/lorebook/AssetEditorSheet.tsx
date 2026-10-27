@@ -8,6 +8,7 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import type { AssetSheetStatusRow, AssetSheetType } from "@/types";
 import { AssetCreateForm } from "./AssetCreateForm";
 import { AssetDetailEditor } from "./AssetDetailEditor";
+import { CharacterStudio, type StudioPager } from "./CharacterStudio";
 import type { GalleryAssetSource } from "./gallery-model";
 
 /** 详情 Sheet 显示的内容：某个资产的详情，或新建一个资产的空白表单。 */
@@ -130,6 +131,18 @@ export function AssetEditorSheet({
   const shownName = name ?? last?.name ?? null;
   const shownAsset = live ?? (shownName !== null && last?.name === shownName ? last.asset : undefined);
 
+  // 角色在详情里用整屏三栏的角色工作室，其余资产类型沿用右侧详情 Sheet
+  const isStudio = assetType === "character" && target?.mode === "edit" && shownName !== null && shownAsset !== undefined;
+  const pager: StudioPager | null =
+    isStudio && sequence.length > 1 && index >= 0
+      ? {
+          index: index + 1,
+          total: sequence.length,
+          onPrev: previous !== undefined ? () => switchTo(previous) : undefined,
+          onNext: next !== undefined ? () => switchTo(next) : undefined,
+        }
+      : null;
+
   return (
     <Sheet
       open={open}
@@ -138,17 +151,8 @@ export function AssetEditorSheet({
         confirmLeave(close);
       }}
     >
-      <SheetContent side="right" className="data-[side=right]:w-140">
-        {target?.mode === "create" ? (
-          <AssetCreateForm
-            key={session.id}
-            projectName={projectName}
-            assetType={assetType}
-            onCancel={() => confirmLeave(close)}
-            onCreated={handleCreated}
-            onSubmittingChange={setSubmitting}
-          />
-        ) : shownName !== null && shownAsset ? (
+      {isStudio ? (
+        <SheetContent side="right" fullscreen showCloseButton={false}>
           <EditUnitRetentionContext.Provider value={retention}>
             <RetainedEditUnit
               identity={live ? `${session.id}` : `${session.id}:removed`}
@@ -156,10 +160,9 @@ export function AssetEditorSheet({
               message={t("assets:editor_asset_removed")}
             >
               {(shown) => (
-                <AssetDetailEditor
+                <CharacterStudio
                   key={session.id}
                   projectName={projectName}
-                  assetType={assetType}
                   name={shown.name}
                   asset={shown.asset}
                   sheetStatus={statusByName.get(shown.name)}
@@ -168,13 +171,52 @@ export function AssetEditorSheet({
                   readOnly={readOnly}
                   onGenerate={onGenerate}
                   onRenamed={handleRenamed}
-                  navigation={navigation}
+                  onClose={() => confirmLeave(close)}
+                  pager={pager}
                 />
               )}
             </RetainedEditUnit>
           </EditUnitRetentionContext.Provider>
-        ) : null}
-      </SheetContent>
+        </SheetContent>
+      ) : (
+        <SheetContent side="right" className="data-[side=right]:w-140">
+          {target?.mode === "create" ? (
+            <AssetCreateForm
+              key={session.id}
+              projectName={projectName}
+              assetType={assetType}
+              onCancel={() => confirmLeave(close)}
+              onCreated={handleCreated}
+              onSubmittingChange={setSubmitting}
+            />
+          ) : shownName !== null && shownAsset ? (
+            <EditUnitRetentionContext.Provider value={retention}>
+              <RetainedEditUnit
+                identity={live ? `${session.id}` : `${session.id}:removed`}
+                value={{ name: shownName, asset: shownAsset }}
+                message={t("assets:editor_asset_removed")}
+              >
+                {(shown) => (
+                  <AssetDetailEditor
+                    key={session.id}
+                    projectName={projectName}
+                    assetType={assetType}
+                    name={shown.name}
+                    asset={shown.asset}
+                    sheetStatus={statusByName.get(shown.name)}
+                    generating={generatingNames?.has(shown.name) ?? false}
+                    writing={writingNames?.has(shown.name) ?? false}
+                    readOnly={readOnly}
+                    onGenerate={onGenerate}
+                    onRenamed={handleRenamed}
+                    navigation={navigation}
+                  />
+                )}
+              </RetainedEditUnit>
+            </EditUnitRetentionContext.Provider>
+          ) : null}
+        </SheetContent>
+      )}
     </Sheet>
   );
 }

@@ -301,4 +301,12 @@ export default {
   "derivative_delete_description": "Mô tả thay đổi diện mạo và hình phái sinh sẽ bị xóa cùng nhau, không thể khôi phục.",
   "derivative_delete_description_referenced": "Kịch bản vẫn đang tham chiếu nó bằng {{token}}. Mô tả thay đổi diện mạo và hình phái sinh sẽ bị xóa cùng nhau, không thể khôi phục.",
   editor_derivative_removed: "Phái sinh này đã bị xóa hoặc đổi tên. Các thay đổi chưa lưu vẫn được giữ; lưu hoặc bỏ thay đổi để dùng trạng thái hiện tại.",
+  "studio.master_look": "Hình chính",
+  "studio.definition": "Định nghĩa nhân vật",
+  "studio.forms_subtitle": "Đạo phục và phái sinh theo bối cảnh",
+  "studio.prompt_title": "Lời nhắc tạo",
+  "studio.prompt_empty": "Thêm mô tả để xây dựng lời nhắc tạo.",
+  "studio.prompt_length": "{{count}} ký tự",
+  "studio.mention_token": "Mã tham chiếu",
+  "studio.description_note": "Mô tả này sẽ được đưa vào mọi cảnh quay và lời nhắc có nhân vật này.",
 } satisfies Record<keyof typeof enAssets, string>;

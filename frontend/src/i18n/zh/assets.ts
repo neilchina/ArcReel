@@ -301,4 +301,12 @@ export default {
   "derivative_delete_description": "外观变化描述与衍生图会一起删除，无法恢复。",
   "derivative_delete_description_referenced": "脚本中仍在用 {{token}} 引用它。外观变化描述与衍生图会一起删除，无法恢复。",
   editor_derivative_removed: "此衍生已被删除或改名。未保存的修改仍保留，保存或放弃后采用当前状态。",
+  "studio.master_look": "主形象",
+  "studio.definition": "角色设定",
+  "studio.forms_subtitle": "换装与情境衍生",
+  "studio.prompt_title": "生成提示词",
+  "studio.prompt_empty": "先写描述，生成时会自动组装成提示词。",
+  "studio.prompt_length": "{{count}} 字",
+  "studio.mention_token": "引用记号",
+  "studio.description_note": "这段描述会注入到该角色出现的所有分镜与生成提示词。",
 } satisfies Record<keyof typeof enAssets, string>;

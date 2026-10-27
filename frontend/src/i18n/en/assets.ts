@@ -299,4 +299,12 @@ export default {
   "derivative_delete_description": "Its appearance change and derivative sheet are deleted together and cannot be recovered.",
   "derivative_delete_description_referenced": "The script still references it as {{token}}. Its appearance change and derivative sheet are deleted together and cannot be recovered.",
   editor_derivative_removed: "This derivative was deleted or renamed. Your unsaved changes are retained; save or discard to use the current state.",
+  "studio.master_look": "Master Look",
+  "studio.definition": "Character Definition",
+  "studio.forms_subtitle": "Costume & contextual derivatives",
+  "studio.prompt_title": "Generation Prompt",
+  "studio.prompt_empty": "Add a description to build the generation prompt.",
+  "studio.prompt_length": "{{count}} characters",
+  "studio.mention_token": "Mention token",
+  "studio.description_note": "This description is injected into every storyboard and prompt featuring this character.",
 };
