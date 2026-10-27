@@ -1,4 +1,4 @@
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, History, Loader2, MoreHorizontal, PenLine, Pencil, Shirt, Trash2, X } from "lucide-react";
 import { API, CHARACTER_DERIVATIVE_RESOURCE_TYPE, derivativeResourceId } from "@/api";
@@ -52,6 +52,9 @@ import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 export function derivativeToken(characterName: string, derivativeName: string): string {
   return `@[${characterName}/${derivativeName}]`;
 }
+
+/** 参考图选择器里「上传任意图」选项的哨兵值（不是真实图片路径）。 */
+export const CUSTOM_REFERENCE_VALUE = "__custom__";
 
 type RowDialog = "image-edit" | "versions" | "delete";
 
@@ -115,6 +118,9 @@ export function CharacterDerivativeRow({
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   // 本次生成临时用的参考图；空 = 跟随默认（本体资产图），只在切到别的图时带覆盖
   const [selectedReference, setSelectedReference] = useState("");
+  // 「上传任意图」选项下已上传的参考图（项目内路径），以及上传在途
+  const [customReferencePath, setCustomReferencePath] = useState("");
+  const [customUploading, setCustomUploading] = useState(false);
 
   const resourceId = derivativeResourceId(characterName, name);
   const generating = useActiveResourceIds("character_derivative", projectName).has(resourceId);
@@ -177,8 +183,34 @@ export function CharacterDerivativeRow({
     );
   };
 
-  const effectiveReference = selectedReference || defaultReference || referenceOptions[0]?.value || "";
-  const referenceImage = effectiveReference && effectiveReference !== defaultReference ? effectiveReference : undefined;
+  const effectiveReference =
+    selectedReference ||
+    defaultReference ||
+    referenceOptions.find((o) => o.value !== CUSTOM_REFERENCE_VALUE)?.value ||
+    referenceOptions[0]?.value ||
+    "";
+  const isCustomReference = effectiveReference === CUSTOM_REFERENCE_VALUE;
+  // 自定义（上传任意图）：用已上传的项目内路径；还没上传时回落到默认参考图
+  const referenceImage = isCustomReference
+    ? customReferencePath || undefined
+    : effectiveReference && effectiveReference !== defaultReference
+      ? effectiveReference
+      : undefined;
+
+  const handleCustomUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setCustomUploading(true);
+    try {
+      const result = await API.uploadFile(projectName, "derivative_ref", file);
+      if (result.path) setCustomReferencePath(result.path);
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setCustomUploading(false);
+    }
+  };
 
   const handleGenerate = async () => {
     if (
@@ -425,20 +457,38 @@ export function CharacterDerivativeRow({
         <>
           <UnsavedChangesBar unit={unit} />
           <div className="flex flex-wrap items-center gap-1.5">
-            {referenceOptions.length > 1 ? (
-              <select
-                className="h-8 max-w-[160px] rounded-md border border-input bg-background px-2 text-xs"
-                value={effectiveReference}
-                onChange={(e) => setSelectedReference(e.target.value)}
-                disabled={rowBusy}
-                aria-label={t("assets:studio.derivative_reference_label")}
-              >
-                {referenceOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+            <select
+              className="h-8 max-w-[160px] rounded-md border border-input bg-background px-2 text-xs"
+              value={effectiveReference}
+              onChange={(e) => setSelectedReference(e.target.value)}
+              disabled={rowBusy}
+              aria-label={t("assets:studio.derivative_reference_label")}
+            >
+              {referenceOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {isCustomReference ? (
+              <label className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground">
+                {customUploading ? <Loader2 aria-hidden className="size-3.5 animate-spin" /> : null}
+                {customReferencePath ? (
+                  <img
+                    src={API.getFileUrl(projectName, customReferencePath, null)}
+                    alt=""
+                    className="h-5 w-5 rounded-sm object-cover"
+                  />
+                ) : null}
+                {t("assets:studio.derivative_reference_upload")}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={rowBusy || customUploading}
+                  onChange={(e) => void handleCustomUpload(e)}
+                />
+              </label>
             ) : null}
             <GenerateButton
               onClick={generate}

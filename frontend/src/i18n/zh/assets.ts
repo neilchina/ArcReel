@@ -327,4 +327,6 @@ export default {
   "studio.derivative_reference_label": "参考图",
   "studio.derivative_reference_owner": "本体资产图",
   "studio.derivative_reference_character": "角色参考图",
+  "studio.derivative_reference_custom": "上传任意图",
+  "studio.derivative_reference_upload": "上传图片",
 } satisfies Record<keyof typeof enAssets, string>;

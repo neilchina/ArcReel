@@ -14,7 +14,7 @@ import type { CharacterDerivative } from "@/types";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { AssetImageDialog } from "./AssetImageDialog";
 import { rejectIfAssetBusy } from "./assetBusyGuard";
-import { CharacterDerivativeRow } from "./CharacterDerivativeRow";
+import { CharacterDerivativeRow, CUSTOM_REFERENCE_VALUE } from "./CharacterDerivativeRow";
 import { useTrackWrite } from "./useAssetWrites";
 import { useCharacterDerivativeSheets } from "./useCharacterDerivativeSheets";
 
@@ -65,6 +65,8 @@ export function CharacterDerivativesField({
     add(ownerSheet, t("assets:studio.derivative_reference_owner"));
     add(referenceImage, t("assets:studio.derivative_reference_character"));
     for (const [name, derivative] of entries) add(derivative.character_sheet, name);
+    // 「上传任意图」：不在角色自身图像里的参考图，选中后可上传任意一张
+    options.push({ label: t("assets:studio.derivative_reference_custom"), value: CUSTOM_REFERENCE_VALUE });
     return options;
   }, [ownerSheet, referenceImage, entries, t]);
   const { statuses, refresh } = useCharacterDerivativeSheets(projectName, characterName, revision, entries.length > 0);

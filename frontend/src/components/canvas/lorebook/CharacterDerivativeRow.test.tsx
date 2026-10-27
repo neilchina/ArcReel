@@ -6,7 +6,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
 import type { CharacterDerivativeStatus } from "@/types";
-import { CharacterDerivativeRow, type CharacterDerivativeRowProps } from "./CharacterDerivativeRow";
+import { CharacterDerivativeRow, CUSTOM_REFERENCE_VALUE, type CharacterDerivativeRowProps } from "./CharacterDerivativeRow";
 
 const SHEET_PATH = "characters/derivatives/阿岚/战斗装.png";
 const OWNER_SHEET_PATH = "characters/阿岚.png";
@@ -109,6 +109,34 @@ describe("CharacterDerivativeRow", () => {
     fireEvent.click(screen.getByRole("button", { name: "生成衍生图" }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith("demo", "阿岚", "战斗装", undefined, REFERENCE_PATH));
+  });
+
+  it("uploads a custom reference and sends its project path on generate", async () => {
+    const uploadFile = vi
+      .spyOn(API, "uploadFile")
+      .mockResolvedValue({ success: true, path: "characters/derivative_refs/ref_1.jpg" } as Awaited<ReturnType<typeof API.uploadFile>>);
+    const spy = vi
+      .spyOn(API, "generateCharacterDerivative")
+      .mockResolvedValue({ success: true, task_id: "task-1", deduped: false, message: "已提交" });
+    renderRow(undefined, {
+      referenceOptions: [
+        { label: "本体资产图", value: OWNER_SHEET_PATH },
+        { label: "上传任意图", value: CUSTOM_REFERENCE_VALUE },
+      ],
+    });
+
+    // 切到「上传任意图」，出现上传入口
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: CUSTOM_REFERENCE_VALUE } });
+    const file = new File(["fake-image"], "ref.jpg", { type: "image/jpeg" });
+    fireEvent.change(screen.getByLabelText("上传图片"), { target: { files: [file] } });
+    await waitFor(() => expect(uploadFile).toHaveBeenCalledWith("demo", "derivative_ref", file));
+    await act(async () => {});
+
+    fireEvent.click(screen.getByRole("button", { name: "生成衍生图" }));
+
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith("demo", "阿岚", "战斗装", undefined, "characters/derivative_refs/ref_1.jpg"),
+    );
   });
 
   it("shows a 640px thumbnail in the row and opens the original image in the viewer", () => {

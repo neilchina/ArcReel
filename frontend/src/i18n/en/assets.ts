@@ -325,4 +325,6 @@ export default {
   "studio.derivative_reference_label": "Reference image",
   "studio.derivative_reference_owner": "Base sheet",
   "studio.derivative_reference_character": "Character reference",
+  "studio.derivative_reference_custom": "Upload any image",
+  "studio.derivative_reference_upload": "Upload image",
 };

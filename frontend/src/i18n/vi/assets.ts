@@ -327,4 +327,6 @@ export default {
   "studio.derivative_reference_label": "Ảnh tham chiếu",
   "studio.derivative_reference_owner": "Ảnh cơ sở",
   "studio.derivative_reference_character": "Tham chiếu nhân vật",
+  "studio.derivative_reference_custom": "Tải ảnh tùy ý",
+  "studio.derivative_reference_upload": "Tải ảnh lên",
 } satisfies Record<keyof typeof enAssets, string>;
