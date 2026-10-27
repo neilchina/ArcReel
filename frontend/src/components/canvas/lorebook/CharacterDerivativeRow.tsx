@@ -69,6 +69,10 @@ export interface CharacterDerivativeRowProps {
   busy: boolean;
   /** 本次衍生生成用的图像端点覆盖（"" / 省略 = 跟随当前配置默认）。 */
   imageEndpoint?: string;
+  /** 可选的临时参考图来源（角色自己的图像）；每行默认仍是本体资产图。 */
+  referenceOptions: { label: string; value: string }[];
+  /** 默认参考图（本体资产图）；选择与它不同的图时才带 reference_image 覆盖。 */
+  defaultReference?: string;
   onView: (image: { src: string; alt: string; title: string }) => void;
   /** 改名已提交、项目数据刷新之前调用，让这一行沿用原来的编辑单元。 */
   onRenamed: (from: string, to: string) => void;
@@ -92,6 +96,8 @@ export function CharacterDerivativeRow({
   readOnly,
   busy,
   imageEndpoint,
+  referenceOptions,
+  defaultReference,
   onView,
   onRenamed,
   onSheetsChanged,
@@ -107,6 +113,8 @@ export function CharacterDerivativeRow({
   const [pending, setPending] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  // 本次生成临时用的参考图；空 = 跟随默认（本体资产图），只在切到别的图时带覆盖
+  const [selectedReference, setSelectedReference] = useState("");
 
   const resourceId = derivativeResourceId(characterName, name);
   const generating = useActiveResourceIds("character_derivative", projectName).has(resourceId);
@@ -169,6 +177,9 @@ export function CharacterDerivativeRow({
     );
   };
 
+  const effectiveReference = selectedReference || defaultReference || referenceOptions[0]?.value || "";
+  const referenceImage = effectiveReference && effectiveReference !== defaultReference ? effectiveReference : undefined;
+
   const handleGenerate = async () => {
     if (
       isAssetBusy("character", projectName, characterName) ||
@@ -178,7 +189,7 @@ export function CharacterDerivativeRow({
       return;
     }
     try {
-      await enqueueCharacterDerivative(projectName, characterName, name, imageEndpoint);
+      await enqueueCharacterDerivative(projectName, characterName, name, imageEndpoint, referenceImage);
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     }
@@ -414,6 +425,21 @@ export function CharacterDerivativeRow({
         <>
           <UnsavedChangesBar unit={unit} />
           <div className="flex flex-wrap items-center gap-1.5">
+            {referenceOptions.length > 1 ? (
+              <select
+                className="h-8 max-w-[160px] rounded-md border border-input bg-background px-2 text-xs"
+                value={effectiveReference}
+                onChange={(e) => setSelectedReference(e.target.value)}
+                disabled={rowBusy}
+                aria-label={t("assets:studio.derivative_reference_label")}
+              >
+                {referenceOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <GenerateButton
               onClick={generate}
               loading={generating}

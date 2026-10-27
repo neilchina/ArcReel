@@ -9,7 +9,13 @@ import type { CharacterDerivativeStatus } from "@/types";
 import { CharacterDerivativeRow, type CharacterDerivativeRowProps } from "./CharacterDerivativeRow";
 
 const SHEET_PATH = "characters/derivatives/阿岚/战斗装.png";
+const OWNER_SHEET_PATH = "characters/阿岚.png";
+const REFERENCE_PATH = "characters/reference/阿岚参考.png";
 const IMAGE_ALT = "衍生「阿岚/战斗装」的资产图";
+const DEFAULT_REFERENCE_OPTIONS = [
+  { label: "本体资产图", value: OWNER_SHEET_PATH },
+  { label: "角色参考图", value: REFERENCE_PATH },
+];
 
 function renderRow(status: CharacterDerivativeStatus | undefined, overrides: Partial<CharacterDerivativeRowProps> = {}) {
   render(
@@ -23,6 +29,8 @@ function renderRow(status: CharacterDerivativeStatus | undefined, overrides: Par
         ownerHasSheet
         readOnly={false}
         busy={false}
+        referenceOptions={DEFAULT_REFERENCE_OPTIONS}
+        defaultReference={OWNER_SHEET_PATH}
         onView={vi.fn()}
         onRenamed={vi.fn()}
         onSheetsChanged={vi.fn()}
@@ -87,7 +95,20 @@ describe("CharacterDerivativeRow", () => {
     expect(spy).not.toHaveBeenCalled();
     fireEvent.click(within(confirm).getByRole("button", { name: "重新生成" }));
 
-    await waitFor(() => expect(spy).toHaveBeenCalledWith("demo", "阿岚", "战斗装"));
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("demo", "阿岚", "战斗装", undefined, undefined));
+  });
+
+  it("sends the picked reference image as a per-generation override", async () => {
+    const spy = vi
+      .spyOn(API, "generateCharacterDerivative")
+      .mockResolvedValue({ success: true, task_id: "task-1", deduped: false, message: "已提交" });
+    // 首次生成（无衍生图）跳过确认弹窗，直接走生成
+    renderRow({ description: "换上黑色重甲", character_sheet: "", stale: false });
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: REFERENCE_PATH } });
+    fireEvent.click(screen.getByRole("button", { name: "生成衍生图" }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("demo", "阿岚", "战斗装", undefined, REFERENCE_PATH));
   });
 
   it("shows a 640px thumbnail in the row and opens the original image in the viewer", () => {

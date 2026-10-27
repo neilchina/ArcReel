@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Plus } from "lucide-react";
 import { API } from "@/api";
@@ -29,6 +29,8 @@ interface CharacterDerivativesFieldProps {
   busy: boolean;
   /** 本角色衍生生成共用的图像端点覆盖（"" / 省略 = 跟随当前配置默认）。 */
   imageEndpoint?: string;
+  /** 角色自己的单张参考图；与本体资产图、各衍生图一起作为可选的临时参考图来源。 */
+  referenceImage?: string;
 }
 
 /**
@@ -43,12 +45,28 @@ export function CharacterDerivativesField({
   readOnly,
   busy,
   imageEndpoint,
+  referenceImage,
 }: CharacterDerivativesFieldProps) {
   const { t } = useTranslation(["assets", "common"]);
   const ownerFp = useProjectsStore((s) => (ownerSheet ? s.getAssetFingerprint(ownerSheet) : null));
   // 登记或本体图变化时重新读取衍生图状态（过期判定依赖二者）
   const revision = `${JSON.stringify(derivatives)}#${ownerSheet ?? ""}#${ownerFp ?? ""}`;
   const entries = Object.entries(derivatives);
+  // 角色自己的图像（本体资产图、单张参考图、各衍生图）作为可选的临时参考图来源；
+  // 每行默认仍是本体资产图，这里只备齐可切换的选项。
+  const referenceOptions = useMemo(() => {
+    const options: { label: string; value: string }[] = [];
+    const seen = new Set<string>();
+    const add = (value: string | undefined, label: string) => {
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      options.push({ label, value });
+    };
+    add(ownerSheet, t("assets:studio.derivative_reference_owner"));
+    add(referenceImage, t("assets:studio.derivative_reference_character"));
+    for (const [name, derivative] of entries) add(derivative.character_sheet, name);
+    return options;
+  }, [ownerSheet, referenceImage, entries, t]);
   const { statuses, refresh } = useCharacterDerivativeSheets(projectName, characterName, revision, entries.length > 0);
   // 行标识与衍生名无关：改名后新名称沿用原来那一行，行内未保存的外观变化不丢；
   // 旧名之后被新衍生复用时另发标识，两行不会撞在一起
@@ -109,6 +127,8 @@ export function CharacterDerivativesField({
                     readOnly={readOnly}
                     busy={busy}
                     imageEndpoint={imageEndpoint}
+                    referenceOptions={referenceOptions}
+                    defaultReference={ownerSheet ?? ""}
                     onView={(image) => setViewing({ ...image, open: true })}
                     onRenamed={handleRenamed}
                     onSheetsChanged={refresh}

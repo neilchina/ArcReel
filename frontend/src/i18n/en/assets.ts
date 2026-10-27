@@ -322,4 +322,7 @@ export default {
   "studio.endpoint_current": "Current: {{source}}",
   "studio.endpoint_set_default": "Set as default",
   "studio.endpoint_set_default_toast": "Saved as the default endpoint for this asset type",
+  "studio.derivative_reference_label": "Reference image",
+  "studio.derivative_reference_owner": "Base sheet",
+  "studio.derivative_reference_character": "Character reference",
 };

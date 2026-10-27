@@ -1132,6 +1132,55 @@ class TestGenerateRouter:
         assert call["provider_id"] == "vertex/deri-model"
         assert call["payload"].get("image_provider") is None
 
+    def test_character_derivative_reference_override_lands_in_payload(self, tmp_path, monkeypatch):
+        """本次生成参考图覆盖：reference_image 进 payload，端点未覆盖时走默认。"""
+        client, fake_queue = self._client_with_character_derivative(tmp_path, monkeypatch)
+
+        async def _fake_i2i_default(project, *, task_type=None):
+            return "vertex/deri-model"
+
+        monkeypatch.setattr(generate, "_require_i2i_image_provider_configured", _fake_i2i_default)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice/derivatives/正脸",
+                json={"reference_image": "characters/refs/Alice_ref.png"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        call = fake_queue.calls[0]
+        assert call["payload"]["reference_image"] == "characters/refs/Alice_ref.png"
+        assert call["payload"].get("image_provider") is None  # 端点未覆盖，payload 不带 image_provider
+        assert call["provider_id"] == "vertex/deri-model"
+
+    def test_character_derivative_reference_override_relaxes_owner_sheet_requirement(self, tmp_path, monkeypatch):
+        """本体没有资产图时：不带覆盖仍被拒；带参考图覆盖放行，仅建这一次任务。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        # Bob 还没有本体资产图，只有一个已写变化描述的衍生
+        fake_pm.project["characters"]["Bob"] = {
+            "description": "no sheet yet",
+            "derivatives": {"礼服": {"description": "红色礼服", "character_sheet": ""}},
+        }
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        async def _fake_i2i_default(project, *, task_type=None):
+            return "vertex/deri-model"
+
+        monkeypatch.setattr(generate, "_require_i2i_image_provider_configured", _fake_i2i_default)
+        with client:
+            rejected = client.post("/api/v1/projects/demo/generate/character/Bob/derivatives/礼服")
+            assert rejected.status_code == 400, rejected.text
+
+            accepted = client.post(
+                "/api/v1/projects/demo/generate/character/Bob/derivatives/礼服",
+                json={"reference_image": "characters/refs/Alice_ref.png"},
+            )
+            assert accepted.status_code == 200, accepted.text
+
+        assert len(fake_queue.calls) == 1
+        assert fake_queue.calls[0]["payload"]["reference_image"] == "characters/refs/Alice_ref.png"
+
     def test_error_paths(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)

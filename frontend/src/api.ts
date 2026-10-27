@@ -1005,14 +1005,17 @@ class API {
     projectName: string,
     charName: string,
     derivativeName: string,
-    endpoint?: { image_provider: string; image_model?: string }
+    endpoint?: { image_provider: string; image_model?: string },
+    referenceImage?: string
   ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
+    const body: Record<string, unknown> = { ...(endpoint ?? {}) };
+    if (referenceImage) body.reference_image = referenceImage;
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}/derivatives/${encodeURIComponent(derivativeName)}`,
       {
         method: "POST",
         // 无覆盖时不带请求体，保持既有调用形态
-        body: endpoint ? JSON.stringify(endpoint) : undefined,
+        body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
       }
     );
   }

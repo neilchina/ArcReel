@@ -324,4 +324,7 @@ export default {
   "studio.endpoint_current": "Hiện tại: {{source}}",
   "studio.endpoint_set_default": "Đặt làm mặc định",
   "studio.endpoint_set_default_toast": "Đã lưu làm điểm cuối mặc định cho loại tài sản này",
+  "studio.derivative_reference_label": "Ảnh tham chiếu",
+  "studio.derivative_reference_owner": "Ảnh cơ sở",
+  "studio.derivative_reference_character": "Tham chiếu nhân vật",
 } satisfies Record<keyof typeof enAssets, string>;

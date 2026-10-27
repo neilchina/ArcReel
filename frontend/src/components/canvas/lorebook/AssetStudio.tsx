@@ -547,6 +547,7 @@ export function AssetStudio({
                 characterName={name}
                 derivatives={character.derivatives ?? {}}
                 ownerSheet={character.character_sheet}
+                referenceImage={character.reference_image}
                 readOnly={readOnly}
                 busy={busy}
                 imageEndpoint={derivativeEndpointValue}

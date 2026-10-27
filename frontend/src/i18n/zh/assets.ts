@@ -324,4 +324,7 @@ export default {
   "studio.endpoint_current": "当前：{{source}}",
   "studio.endpoint_set_default": "设为默认",
   "studio.endpoint_set_default_toast": "已保存为该资产类型的默认端点",
+  "studio.derivative_reference_label": "参考图",
+  "studio.derivative_reference_owner": "本体资产图",
+  "studio.derivative_reference_character": "角色参考图",
 } satisfies Record<keyof typeof enAssets, string>;

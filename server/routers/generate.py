@@ -688,6 +688,21 @@ class GenerateAssetSheetRequest(BaseModel):
     image_model: str | None = None
 
 
+class GenerateCharacterDerivativeRequest(BaseModel):
+    """衍生资产图生成的可选覆盖。
+
+    ``image_provider`` / ``image_model`` 进 payload 层（优先级最高），仅作用于本次生成的端点；
+    ``reference_image`` 是本次生成用的参考图（项目内相对路径），缺省时用本体资产图。均为 None
+    （或整个请求体缺省）时不带覆盖，走当前配置默认端点与本体资产图。请求体没有 prompt。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    image_provider: str | None = None
+    image_model: str | None = None
+    reference_image: str | None = None
+
+
 async def _enqueue_asset_generation(
     *,
     asset_type: str,
@@ -780,21 +795,26 @@ async def generate_character_derivative(
     derivative_name: str,
     user: CurrentUser,
     _t: Translator,
-    req: GenerateAssetSheetRequest | None = None,
+    req: GenerateCharacterDerivativeRequest | None = None,
 ):
     """提交角色衍生资产图生成任务到队列，立即返回 task_id。
 
-    衍生图是对本体资产图的一次编辑，指令由衍生自己的外观变化描述加固定守卫构成，请求体
-    因此没有 prompt——入队与执行都按当次的项目状态取，避免两侧各持一份指令。本体没有
-    资产图、或衍生还没写变化描述时在此拒绝，不建任务。
+    衍生图默认是对本体资产图的一次编辑，指令由衍生自己的外观变化描述加固定守卫构成，请求体
+    因此没有 prompt——入队与执行都按当次的项目状态取，避免两侧各持一份指令。衍生还没写变化
+    描述时在此拒绝；缺参考图覆盖时本体也没有资产图才拒绝，不建任务。
 
-    可选的 ``image_provider`` / ``image_model`` 作本次生成端点覆盖（优先级最高，写 payload 层）；
-    缺省时按当前配置解析默认 i2i 端点并校验已配置。
+    可选的 ``image_provider`` / ``image_model`` 作本次生成端点覆盖（优先级最高，写 payload 层），
+    缺省时按当前配置解析默认 i2i 端点并校验已配置；可选的 ``reference_image`` 作本次生成参考图
+    覆盖（写 payload 层），缺省时用本体资产图。
     """
+
+    reference_image = (req.reference_image or "").strip() if req else ""
 
     def _sync() -> tuple[dict, DerivativeSheetSource]:
         project = get_project_manager().load_project(project_name)
-        return project, resolve_derivative_sheet_source(project, char_name, derivative_name)
+        return project, resolve_derivative_sheet_source(
+            project, char_name, derivative_name, require_owner_sheet=not reference_image
+        )
 
     try:
         project, source = await asyncio.to_thread(_sync)
@@ -803,21 +823,25 @@ async def generate_character_derivative(
 
     image_provider = req.image_provider if req else None
     image_model = req.image_model if req else None
+    extra_payload: dict[str, str] = {}
+    if image_provider:
+        extra_payload["image_provider"] = image_provider
+    if image_model:
+        extra_payload["image_model"] = image_model
+    if reference_image:
+        extra_payload["reference_image"] = reference_image
+
     if image_provider:
         provider_id = image_provider
-        extra_payload: dict[str, str] | None = {"image_provider": image_provider}
-        if image_model:
-            extra_payload["image_model"] = image_model
     else:
         provider_id = await _require_i2i_image_provider_configured(project, task_type=DERIVATIVE_TASK_TYPE)
-        extra_payload = None
 
     spec = TaskSpec.from_request(
         task_type=DERIVATIVE_TASK_TYPE,
         media_type="image",
         resource_id=source.target.artifact_id,
         prompt=build_derivative_sheet_instruction(source.description),
-        extra_payload=extra_payload,
+        extra_payload=extra_payload or None,
     )
     result = await get_generation_queue().enqueue_task(
         project_name=project_name,
