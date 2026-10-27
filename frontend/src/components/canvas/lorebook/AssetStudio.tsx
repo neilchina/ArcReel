@@ -21,6 +21,7 @@ import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite"
 import { ASSET_TYPE_ICON } from "./AssetBrowseCard";
 import { rejectIfAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
 import { AssetAliasesField } from "./AssetAliasesField";
+import { AssetEndpointSelector } from "./AssetEndpointSelector";
 import { AssetImageDialog } from "./AssetImageDialog";
 import { AssetOriginalsField } from "./AssetOriginalsField";
 import { hasUsableDescription } from "./AssetSheetStatusBadge";
@@ -87,7 +88,8 @@ export interface AssetStudioProps {
   generating: boolean;
   writing?: boolean;
   readOnly: boolean;
-  onGenerate: (name: string) => unknown;
+  /** 端点为可选：省略（或空）时不带本次生成的端点覆盖，走当前配置默认。 */
+  onGenerate: (name: string, endpoint?: string) => unknown;
   /** 改名已提交时调用。 */
   onRenamed: (from: string, to: string) => void;
   /** 返回资产列表。 */
@@ -193,13 +195,19 @@ export function AssetStudio({
     (s) => s.currentProjectData?.character_voice_binding ?? DEFAULT_CHARACTER_VOICE_BINDING,
   );
 
+  // 图像端点：左栏选择器持有本次生成的临时覆盖（"" = 跟随当前配置默认）。无覆盖时只传名字，
+  // 保持本次生成端点可省略；有覆盖才带上端点。
+  const [endpointValue, setEndpointValue] = useState("");
+  const useImageToImage = sheetStatus?.image_to_image ?? false;
+  const runGenerate = () => (endpointValue ? onGenerate(name, endpointValue) : onGenerate(name));
+
   const staleConfirm = useStaleRegenerateConfirm({
     projectName,
     assetType,
     name,
     status: sheetStatus,
     hasSheet: Boolean(gallery.sheetPath),
-    onGenerate: () => onGenerate(name),
+    onGenerate: runGenerate,
   });
 
   const generate = () => {
@@ -208,7 +216,9 @@ export function AssetStudio({
     const willBeStale = value.description !== unit.savedValue.description;
     void unit.saveAndGenerate(
       () => {
-        if (!rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) return onGenerate(name);
+        if (!rejectIfAssetBusy(assetType, projectName, name, t, "assets:gallery_busy_hint")) {
+          return runGenerate();
+        }
       },
       {
         confirm: async () => {
@@ -318,6 +328,16 @@ export function AssetStudio({
                   <Eye aria-hidden />
                 </Button>
               </div>
+            )}
+            {readOnly ? null : (
+              <AssetEndpointSelector
+                projectName={projectName}
+                assetType={assetType}
+                useImageToImage={useImageToImage}
+                value={endpointValue}
+                onChange={setEndpointValue}
+                busy={busy}
+              />
             )}
             {readOnly || describable ? null : (
               <p className="text-xs text-muted-foreground">{t("assets:sheet_description_required")}</p>

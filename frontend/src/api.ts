@@ -2504,7 +2504,8 @@ class API {
    */
   static async generateCharacter(
     projectName: string,
-    charName: string
+    charName: string,
+    endpoint?: { image_provider: string; image_model?: string }
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2515,6 +2516,8 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}`,
       {
         method: "POST",
+        // 无覆盖时不带请求体，保持既有调用形态
+        body: endpoint ? JSON.stringify(endpoint) : undefined,
       }
     );
   }
@@ -2528,7 +2531,8 @@ class API {
    */
   static async generateProjectScene(
     projectName: string,
-    sceneName: string
+    sceneName: string,
+    endpoint?: { image_provider: string; image_model?: string }
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2539,6 +2543,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/scene/${encodeURIComponent(sceneName)}`,
       {
         method: "POST",
+        body: endpoint ? JSON.stringify(endpoint) : undefined,
       }
     );
   }
@@ -2552,7 +2557,8 @@ class API {
    */
   static async generateProjectProp(
     projectName: string,
-    propName: string
+    propName: string,
+    endpoint?: { image_provider: string; image_model?: string }
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2563,6 +2569,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/prop/${encodeURIComponent(propName)}`,
       {
         method: "POST",
+        body: endpoint ? JSON.stringify(endpoint) : undefined,
       }
     );
   }
@@ -2576,7 +2583,8 @@ class API {
    */
   static async generateProjectProduct(
     projectName: string,
-    productName: string
+    productName: string,
+    endpoint?: { image_provider: string; image_model?: string }
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2587,6 +2595,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/product/${encodeURIComponent(productName)}`,
       {
         method: "POST",
+        body: endpoint ? JSON.stringify(endpoint) : undefined,
       }
     );
   }

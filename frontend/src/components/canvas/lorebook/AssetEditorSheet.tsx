@@ -26,7 +26,7 @@ export interface AssetEditorSheetProps {
   /** 卡片上本地上传等写入，与详情里的入口互斥。 */
   writingNames?: ReadonlySet<string>;
   readOnly: boolean;
-  onGenerate: (name: string) => unknown;
+  onGenerate: (name: string, endpoint?: string) => unknown;
 }
 
 /**

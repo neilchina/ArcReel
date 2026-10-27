@@ -674,6 +674,20 @@ _ASSET_GENERATE_I18N: dict[str, dict[str, str]] = {
 }
 
 
+class GenerateAssetSheetRequest(BaseModel):
+    """资产图生成的可选端点覆盖。
+
+    ``image_provider`` / ``image_model`` 进 payload 层（优先级最高），仅作用于本次生成；
+    均为 None（或整个请求体缺省）时不带覆盖、走当前配置默认。请求体没有 prompt：描述只取项目
+    里存储的条目，执行时按当次的项目状态重读。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    image_provider: str | None = None
+    image_model: str | None = None
+
+
 async def _enqueue_asset_generation(
     *,
     asset_type: str,
@@ -681,10 +695,13 @@ async def _enqueue_asset_generation(
     resource_name: str,
     user_id: str,
     _t: Translator,
+    image_provider: str | None = None,
+    image_model: str | None = None,
 ) -> dict:
     """项目级资产（character / scene / prop / product）资产图生成共用入队逻辑。
 
-    请求体没有 prompt：描述只取项目里存储的条目，执行时按当次的项目状态重读。
+    请求体没有 prompt：描述只取项目里存储的条目，执行时按当次的项目状态重读。可选的
+    ``image_provider`` / ``image_model`` 作为 payload 覆盖写入任务，解析时优先于配置默认。
     """
     spec = ASSET_SPECS[asset_type]
     keys = _ASSET_GENERATE_I18N[asset_type]
@@ -704,10 +721,17 @@ async def _enqueue_asset_generation(
 
     resource_key = await asyncio.to_thread(_sync)
 
+    extra_payload: dict[str, str] | None = None
+    if image_provider:
+        extra_payload = {"image_provider": image_provider}
+        if image_model:
+            extra_payload["image_model"] = image_model
+
     task_spec = TaskSpec.from_request(
         task_type=asset_type,
         media_type="image",
         resource_id=resource_key,
+        extra_payload=extra_payload,
     )
 
     queue = get_generation_queue()
@@ -735,6 +759,7 @@ async def generate_character(
     char_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerateAssetSheetRequest | None = None,
 ):
     """提交角色资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
@@ -743,6 +768,8 @@ async def generate_character(
         resource_name=char_name,
         user_id=user.id,
         _t=_t,
+        image_provider=req.image_provider if req else None,
+        image_model=req.image_model if req else None,
     )
 
 
@@ -802,6 +829,7 @@ async def generate_scene(
     scene_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerateAssetSheetRequest | None = None,
 ):
     """提交场景资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
@@ -810,6 +838,8 @@ async def generate_scene(
         resource_name=scene_name,
         user_id=user.id,
         _t=_t,
+        image_provider=req.image_provider if req else None,
+        image_model=req.image_model if req else None,
     )
 
 
@@ -819,6 +849,7 @@ async def generate_prop(
     prop_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerateAssetSheetRequest | None = None,
 ):
     """提交道具资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
@@ -827,6 +858,8 @@ async def generate_prop(
         resource_name=prop_name,
         user_id=user.id,
         _t=_t,
+        image_provider=req.image_provider if req else None,
+        image_model=req.image_model if req else None,
     )
 
 
@@ -836,6 +869,7 @@ async def generate_product(
     product_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerateAssetSheetRequest | None = None,
 ):
     """提交商品标准参考图（product sheet）生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
@@ -844,6 +878,8 @@ async def generate_product(
         resource_name=product_name,
         user_id=user.id,
         _t=_t,
+        image_provider=req.image_provider if req else None,
+        image_model=req.image_model if req else None,
     )
 
 

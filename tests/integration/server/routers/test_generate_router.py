@@ -1000,6 +1000,81 @@ class TestGenerateRouter:
             assert resp.status_code == 404
             assert fake_queue.calls == []
 
+    @pytest.mark.parametrize(
+        ("path", "name"),
+        [
+            ("character/Alice", "Alice"),
+            ("scene/祠堂", "祠堂"),
+            ("prop/玉佩", "玉佩"),
+            ("product/保温杯", "保温杯"),
+        ],
+    )
+    def test_asset_enqueue_with_endpoint_override_lands_in_payload(self, tmp_path, monkeypatch, path, name):
+        """请求体里的 image_provider / image_model 进 payload 层，仅覆盖本次生成。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                f"/api/v1/projects/demo/generate/{path}",
+                json={"image_provider": "openai", "image_model": "gpt-image-1"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert fake_queue.calls[0]["resource_id"] == name
+        assert fake_queue.calls[0]["payload"] == {"image_provider": "openai", "image_model": "gpt-image-1"}
+
+    def test_asset_enqueue_with_provider_only_override_omits_model(self, tmp_path, monkeypatch):
+        """裸 provider（无 model）合法：payload 只带 image_provider，执行时按该供应商默认模型。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice",
+                json={"image_provider": "gemini"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert fake_queue.calls[0]["payload"] == {"image_provider": "gemini"}
+
+    def test_asset_enqueue_with_model_only_does_not_override(self, tmp_path, monkeypatch):
+        """只有 image_model 没有 image_provider 时不产生覆盖：payload 保持为空，走配置默认。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/scene/祠堂",
+                json={"image_model": "solo-model"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert fake_queue.calls[0]["payload"] == {}
+
+    def test_asset_sheet_request_forbids_unknown_fields(self, tmp_path, monkeypatch):
+        """请求体严格校验：prompt 等非端点字段一律拒绝，不得混入覆盖请求体。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice",
+                json={"prompt": "不应被接受"},
+            )
+
+        assert resp.status_code == 422, resp.text
+        assert [(item["type"], item["loc"][-1]) for item in resp.json()["detail"]] == [("extra_forbidden", "prompt")]
+        assert fake_queue.calls == []
+
     def test_error_paths(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -1418,10 +1493,12 @@ class TestNoServerPathLeak:
             ("/api/v1/projects/demo/generate/video/E1S01", {"script_file": "episode_1.json", "prompt": "x"}),
             ("/api/v1/projects/demo/generate/tts/E1S01", {"script_file": "episode_1.json"}),
             ("/api/v1/projects/demo/generate/tts", {"script_file": "episode_1.json"}),
-            ("/api/v1/projects/demo/generate/character/Alice", {"prompt": "x"}),
-            ("/api/v1/projects/demo/generate/scene/祠堂", {"prompt": "x"}),
-            ("/api/v1/projects/demo/generate/prop/玉佩", {"prompt": "x"}),
-            ("/api/v1/projects/demo/generate/product/保温杯", {"prompt": "x"}),
+            # 资产图端点不接收 prompt（描述取存储条目），请求体只认可选端点覆盖字段；
+            # 这里用空体走「项目缺失」404 路径，而不是被 body 校验拦在 422。
+            ("/api/v1/projects/demo/generate/character/Alice", {}),
+            ("/api/v1/projects/demo/generate/scene/祠堂", {}),
+            ("/api/v1/projects/demo/generate/prop/玉佩", {}),
+            ("/api/v1/projects/demo/generate/product/保温杯", {}),
         ]
         with client:
             for url, payload in requests:
