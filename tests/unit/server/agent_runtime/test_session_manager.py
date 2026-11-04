@@ -649,6 +649,101 @@ class TestSessionManager:
         assert result.interrupt is True
 
     @pytest.mark.asyncio
+    async def test_can_use_tool_parallel_file_access_all_pending_and_settle_independently(
+        self, session_manager, monkeypatch, caplog
+    ):
+        """子 Agent 并行 3 个 host 路径 Read：3 条询问同时挂起、各自广播，按任意顺序各自结算互不影响。"""
+        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
+        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
+
+        managed = ManagedSession(session_id="fa4", actor=_dummy_actor(), status="running", project_name="demo")
+        session_manager.sessions["fa4"] = managed
+        cb = await session_manager._build_can_use_tool_callback("fa4")
+        broadcasts: list[dict] = []
+        monkeypatch.setattr(managed.channel, "broadcast", broadcasts.append)
+
+        paths = [f"/tmp/r2v_review/u20_{n}.jpg" for n in ("035", "550", "1330")]
+        ctx = SimpleNamespace(decision_reason="需要授权：项目根外的 host 路径访问请求")
+        with caplog.at_level("INFO", logger=sm_mod.logger.name):
+            tasks = [asyncio.create_task(cb("Read", {"tool_input": {"file_path": path}}, ctx)) for path in paths]
+            await asyncio.sleep(0)
+
+            assert len(managed.pending_questions) == 3
+            assert [b["path"] for b in broadcasts] == paths
+            by_path = {p.payload["path"]: p.question_id for p in managed.pending_questions.values()}
+            assert len(set(by_path.values())) == 3
+
+            # 乱序结算：批准第 3 条、拒绝第 1 条，第 2 条仍挂着
+            assert managed.resolve_pending_question(by_path[paths[2]], {"文件访问授权": "批准"})
+            assert managed.resolve_pending_question(by_path[paths[0]], {"文件访问授权": "拒绝"})
+            await asyncio.sleep(0)
+            assert tasks[0].done()
+            assert tasks[2].done()
+            assert not tasks[1].done()
+            assert isinstance(tasks[2].result(), _FakeAllow)
+            assert isinstance(tasks[0].result(), _FakeDeny)
+            assert list(managed.pending_questions) == [by_path[paths[1]]]
+
+            assert managed.resolve_pending_question(by_path[paths[1]], {"文件访问授权": "批准"})
+            assert isinstance(await tasks[1], _FakeAllow)
+        assert not managed.pending_questions
+
+        registered = [r.getMessage() for r in caplog.records if "询问已登记" in r.getMessage()]
+        settled = [r.getMessage() for r in caplog.records if "询问已结算" in r.getMessage()]
+        assert len(registered) == 3
+        assert len(settled) == 3
+        assert all(f"question_id={qid}" in msg for qid, msg in zip(by_path.values(), registered, strict=True))
+        assert any("outcome=rejected" in m for m in settled)
+        assert sum("outcome=approved" in m for m in settled) == 2
+        assert all("waited=" in m for m in settled)
+
+    @pytest.mark.asyncio
+    async def test_can_use_tool_file_access_warns_when_pending_too_long(self, session_manager, monkeypatch, caplog):
+        """超过阈值仍未答复 → 打 warning；不自动拒绝或批准，询问仍可被正常结算。"""
+        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
+        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
+        monkeypatch.setattr(type(session_manager), "_FILE_ACCESS_PENDING_WARN_SECONDS", 0.01)
+
+        managed = ManagedSession(session_id="fa5", actor=_dummy_actor(), status="running", project_name="demo")
+        session_manager.sessions["fa5"] = managed
+        cb = await session_manager._build_can_use_tool_callback("fa5")
+
+        ctx = SimpleNamespace(decision_reason="需要授权：项目根外的 host 路径访问请求")
+        with caplog.at_level("WARNING", logger=sm_mod.logger.name):
+            task = asyncio.create_task(cb("Read", {"tool_input": {"file_path": "/tmp/slow.jpg"}}, ctx))
+            await asyncio.sleep(0.05)
+            assert not task.done()
+            warnings = [r for r in caplog.records if r.levelname == "WARNING" and "长时间无人答复" in r.getMessage()]
+            assert len(warnings) == 1
+            assert "path=/tmp/slow.jpg" in warnings[0].getMessage()
+
+            pending = next(iter(managed.pending_questions.values()))
+            assert managed.resolve_pending_question(pending.question_id, {"文件访问授权": "批准"})
+            assert isinstance(await task, _FakeAllow)
+
+    @pytest.mark.asyncio
+    async def test_can_use_tool_file_access_no_warning_when_answered_in_time(
+        self, session_manager, monkeypatch, caplog
+    ):
+        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
+        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
+        monkeypatch.setattr(type(session_manager), "_FILE_ACCESS_PENDING_WARN_SECONDS", 0.05)
+
+        managed = ManagedSession(session_id="fa6", actor=_dummy_actor(), status="running", project_name="demo")
+        session_manager.sessions["fa6"] = managed
+        cb = await session_manager._build_can_use_tool_callback("fa6")
+
+        ctx = SimpleNamespace(decision_reason="需要授权：项目根外的 host 路径访问请求")
+        with caplog.at_level("WARNING", logger=sm_mod.logger.name):
+            task = asyncio.create_task(cb("Read", {"tool_input": {"file_path": "/tmp/fast.jpg"}}, ctx))
+            await asyncio.sleep(0)
+            pending = next(iter(managed.pending_questions.values()))
+            managed.resolve_pending_question(pending.question_id, {"文件访问授权": "批准"})
+            await task
+            await asyncio.sleep(0.1)
+        assert not [r for r in caplog.records if "长时间无人答复" in r.getMessage()]
+
+    @pytest.mark.asyncio
     async def test_can_use_tool_non_file_tool_with_reason_still_default_deny(self, session_manager, monkeypatch):
         """非文件工具（Bash）即便带 decision_reason 也不走文件授权分支，仍落到白名单兜底 deny。"""
         monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)

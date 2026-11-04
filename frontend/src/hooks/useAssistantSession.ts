@@ -88,14 +88,15 @@ export function useAssistantSession(projectName: string | null) {
   const pendingEditsRef = useRef(new Set<string>());
   const failedRewriteRef = useRef<{ clientKey: string; signature: string } | null>(null);
 
-  const syncPendingQuestion = useCallback((question: PendingQuestion | null) => {
-    store.getState().setPendingQuestion(question);
-    store.getState().setAnsweringQuestion(false);
+  // 实时事件与重连快照共用的入口：按 question_id 幂等追加，不覆盖队列里其余询问
+  const enqueuePendingQuestion = useCallback((question: PendingQuestion) => {
+    store.getState().enqueuePendingQuestion(question);
   }, [store]);
 
   const clearPendingQuestion = useCallback(() => {
-    syncPendingQuestion(null);
-  }, [syncPendingQuestion]);
+    store.getState().clearPendingQuestions();
+    store.getState().setAnsweringQuestion(false);
+  }, [store]);
 
   const invalidatePendingSend = useCallback(() => {
     pendingSendVersionRef.current += 1;
@@ -267,7 +268,7 @@ export function useAssistantSession(projectName: string | null) {
         question(payload) {
           const pendingQuestion = getPendingQuestionFromEvent(payload);
           if (pendingQuestion) {
-            syncPendingQuestion(pendingQuestion);
+            enqueuePendingQuestion(pendingQuestion);
           }
         },
       };
@@ -289,7 +290,7 @@ export function useAssistantSession(projectName: string | null) {
       });
       streamRef.current = stream;
     },
-    [clearPendingQuestion, projectName, closeStream, refreshSessions, store, syncPendingQuestion],
+    [clearPendingQuestion, enqueuePendingQuestion, projectName, closeStream, refreshSessions, store],
   );
 
   // 项目事件流的恢复通知与重连核对：当前会话的新一轮已经从常驻的 entry 流收到，
@@ -581,7 +582,7 @@ export function useAssistantSession(projectName: string | null) {
 
       try {
         await API.answerAssistantQuestion(projectName, sessionId, questionId, answers);
-        store.getState().setPendingQuestion(null);
+        store.getState().removePendingQuestion(questionId);
       } catch (err) {
         store.getState().setError(errMsg(err, "回答失败"));
       } finally {

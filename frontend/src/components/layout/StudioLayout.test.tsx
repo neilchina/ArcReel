@@ -72,7 +72,7 @@ describe("StudioLayout", () => {
     ["running", { sessionStatus: "running" as const }, "Agent 正在运行"],
     [
       "waiting for an answer",
-      { sessionStatus: "running" as const, pendingQuestion: { question_id: "q1", questions: [] } },
+      { sessionStatus: "running" as const, pendingQuestions: [{ question_id: "q1", questions: [] }] },
       "Agent 在等你回答",
     ],
   ])("describes a %s agent on the toggle while the panel is closed", (_label, assistantState, description) => {

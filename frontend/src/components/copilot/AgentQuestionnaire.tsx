@@ -57,6 +57,8 @@ function collectAnswers(questions: Question[], form: FormData): Record<string, s
 
 interface AgentQuestionnaireProps {
   pendingQuestion: PendingQuestion;
+  /** 队列里排在当前这条之后、尚未展示的询问数。 */
+  remaining?: number;
   answering: boolean;
   error: string | null;
   onSubmit: (questionId: string, answers: Record<string, string>) => void;
@@ -75,7 +77,7 @@ interface AgentQuestionnaireProps {
 // 「批准 / 拒绝」提交仍走既有 onSubmit(question_id, answers)，answers 的值为选项原文
 // （与后端 _handle_file_access_request 的解析约定一致）。
 // ---------------------------------------------------------------------------
-function FileAccessRequest({ pendingQuestion, answering, error, onSubmit }: AgentQuestionnaireProps) {
+function FileAccessRequest({ pendingQuestion, remaining = 0, answering, error, onSubmit }: AgentQuestionnaireProps) {
   const { t } = useTranslation("dashboard");
   const question = pendingQuestion.questions[0];
   const approveLabel = question?.options?.[0]?.label ?? "批准";
@@ -92,6 +94,9 @@ function FileAccessRequest({ pendingQuestion, answering, error, onSubmit }: Agen
       <div className="flex items-center gap-2 text-xs">
         <ShieldAlert aria-hidden className="size-4 shrink-0 text-warn" />
         <span className="min-w-0 flex-1 truncate font-medium">{t("file_access_title")}</span>
+        {remaining > 0 && (
+          <span className="shrink-0 text-subtle-foreground">{t("question_remaining", { count: remaining })}</span>
+        )}
       </div>
       <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain text-xs">
         <p className="text-subtle-foreground">{pendingQuestion.title || t("file_access_prompt")}</p>
@@ -120,13 +125,19 @@ function FileAccessRequest({ pendingQuestion, answering, error, onSubmit }: Agen
   );
 }
 
-export function AgentQuestionnaire({ pendingQuestion, answering, error, onSubmit }: AgentQuestionnaireProps) {
+export function AgentQuestionnaire({ pendingQuestion, remaining = 0, answering, error, onSubmit }: AgentQuestionnaireProps) {
   const hasQueuedMessages = useAssistantStore((s) => s.queuedMessages.length > 0);
   const { t } = useTranslation("dashboard");
   // 文件访问授权复用同一通道，但渲染批准/拒绝两键并高亮真实路径（见 FileAccessRequest）。
   if (pendingQuestion.request_kind === "file_access") {
     return (
-      <FileAccessRequest pendingQuestion={pendingQuestion} answering={answering} error={error} onSubmit={onSubmit} />
+      <FileAccessRequest
+        pendingQuestion={pendingQuestion}
+        remaining={remaining}
+        answering={answering}
+        error={error}
+        onSubmit={onSubmit}
+      />
     );
   }
   const { questions } = pendingQuestion;
@@ -162,6 +173,9 @@ export function AgentQuestionnaire({ pendingQuestion, answering, error, onSubmit
         <div className="flex shrink-0 items-center gap-2 text-xs">
           <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warn" />
           <span className="min-w-0 flex-1 truncate text-subtle-foreground">{t("question_waiting")}</span>
+          {remaining > 0 && (
+            <span className="shrink-0 text-subtle-foreground">{t("question_remaining", { count: remaining })}</span>
+          )}
           <QuestionnaireProgress
             className="min-w-0"
             // 原语的进度名称与朗读文字写死为英文，按界面语言覆盖

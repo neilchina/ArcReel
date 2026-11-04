@@ -65,7 +65,7 @@ function MessageFlowBody({ ref, onSubmitEdit, onRetryStartup }: MessageFlowProps
   const setEditingTurnUuid = useAssistantStore((s) => s.setEditingTurnUuid);
   const sending = useAssistantStore((s) => s.sending);
   const sessionStatus = useAssistantStore((s) => s.sessionStatus);
-  const hasPendingQuestion = useAssistantStore((s) => Boolean(s.pendingQuestion));
+  const hasPendingQuestion = useAssistantStore((s) => s.pendingQuestions.length > 0);
   const hasQueuedMessages = useAssistantStore((s) => s.queuedMessages.length > 0);
   const startupFailure = useAssistantStore((s) => s.startupFailure);
   const entries = useAssistantStore((s) => s.entries);

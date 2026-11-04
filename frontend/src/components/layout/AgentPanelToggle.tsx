@@ -11,7 +11,7 @@ import { AGENT_PANEL_ID, AGENT_PANEL_TOGGLE_ID } from "./workspace-layout";
 
 /** Agent 需要关注的状态：等待回答优先于运行中。 */
 function useAgentAttention(): "waiting" | "running" | null {
-  const waiting = useAssistantStore((s) => s.pendingQuestion !== null);
+  const waiting = useAssistantStore((s) => s.pendingQuestions.length > 0);
   const running = useAssistantStore((s) => s.sessionStatus === "running");
   if (waiting) return "waiting";
   if (running) return "running";

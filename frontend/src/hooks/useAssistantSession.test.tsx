@@ -674,7 +674,7 @@ describe("useAssistantSession", () => {
       FakeSseStream.instances[0].emit("question", makePendingQuestion());
     });
 
-    expect(useAssistantStore.getState().pendingQuestion?.question_id).toBe("q-1");
+    expect(useAssistantStore.getState().pendingQuestions[0]?.question_id).toBe("q-1");
     expect(useAssistantStore.getState().answeringQuestion).toBe(false);
   });
 
@@ -712,12 +712,73 @@ describe("useAssistantSession", () => {
       });
     });
 
-    const pending = useAssistantStore.getState().pendingQuestion;
+    const pending = useAssistantStore.getState().pendingQuestions[0];
     expect(pending?.request_kind).toBe("file_access");
     expect(pending?.path).toBe("/Users/dev/workspace-02657a9b/secret.txt");
     expect(pending?.reason).toBe("需要授权：项目根外的 host 路径访问请求");
   });
 
+  it("keeps every parallel question event and ignores a replayed one", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "running")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+    renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    act(() => {
+      const stream = FakeSseStream.instances[0];
+      stream.emit("question", makePendingQuestion("q-1"));
+      stream.emit("question", makePendingQuestion("q-2"));
+      stream.emit("question", makePendingQuestion("q-3"));
+      // 重连快照逐条重放同一批询问：按 question_id 幂等，不重复也不乱序
+      stream.emit("question", makePendingQuestion("q-2"));
+    });
+    expect(useAssistantStore.getState().pendingQuestions.map((q) => q.question_id)).toEqual(["q-1", "q-2", "q-3"]);
+  });
+  it("removes only the answered question and keeps the rest", async () => {
+    mockIdleSession();
+    vi.spyOn(API, "answerAssistantQuestion").mockResolvedValue({ success: true });
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+    });
+    act(() => {
+      useAssistantStore.getState().enqueuePendingQuestion(makePendingQuestion("q-1"));
+      useAssistantStore.getState().enqueuePendingQuestion(makePendingQuestion("q-2"));
+      useAssistantStore.getState().enqueuePendingQuestion(makePendingQuestion("q-3"));
+    });
+    await act(async () => {
+      await result.current.answerQuestion("q-1", { "输出格式是什么？": "摘要" });
+    });
+    expect(useAssistantStore.getState().pendingQuestions.map((q) => q.question_id)).toEqual(["q-2", "q-3"]);
+    await act(async () => {
+      await result.current.answerQuestion("q-3", { "输出格式是什么？": "摘要" });
+    });
+    expect(useAssistantStore.getState().pendingQuestions.map((q) => q.question_id)).toEqual(["q-2"]);
+  });
+  it("clears the whole queue on a terminal status", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "running")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+    renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    act(() => {
+      const stream = FakeSseStream.instances[0];
+      stream.emit("question", makePendingQuestion("q-1"));
+      stream.emit("question", makePendingQuestion("q-2"));
+    });
+    expect(useAssistantStore.getState().pendingQuestions).toHaveLength(2);
+    act(() => {
+      FakeSseStream.instances[0].emit("status", { status: "interrupted" });
+    });
+    expect(useAssistantStore.getState().pendingQuestions).toEqual([]);
+  });
   it("submits answers successfully and clears pendingQuestion", async () => {
     mockIdleSession();
     const answerSpy = vi
@@ -731,7 +792,7 @@ describe("useAssistantSession", () => {
     });
 
     act(() => {
-      useAssistantStore.getState().setPendingQuestion(makePendingQuestion());
+      useAssistantStore.getState().enqueuePendingQuestion(makePendingQuestion());
     });
 
     await act(async () => {
@@ -741,7 +802,7 @@ describe("useAssistantSession", () => {
     expect(answerSpy).toHaveBeenCalledWith("demo", "session-1", "q-1", {
       "输出格式是什么？": "摘要",
     });
-    expect(useAssistantStore.getState().pendingQuestion).toBeNull();
+    expect(useAssistantStore.getState().pendingQuestions).toEqual([]);
     expect(useAssistantStore.getState().answeringQuestion).toBe(false);
   });
 
@@ -756,14 +817,14 @@ describe("useAssistantSession", () => {
     });
 
     act(() => {
-      useAssistantStore.getState().setPendingQuestion(makePendingQuestion());
+      useAssistantStore.getState().enqueuePendingQuestion(makePendingQuestion());
     });
 
     await act(async () => {
       await result.current.answerQuestion("q-1", { "输出格式是什么？": "摘要" });
     });
 
-    expect(useAssistantStore.getState().pendingQuestion?.question_id).toBe("q-1");
+    expect(useAssistantStore.getState().pendingQuestions[0]?.question_id).toBe("q-1");
     expect(useAssistantStore.getState().answeringQuestion).toBe(false);
     expect(useAssistantStore.getState().error).toBe("回答失败");
   });
@@ -787,7 +848,7 @@ describe("useAssistantSession", () => {
     });
 
     act(() => {
-      useAssistantStore.getState().setPendingQuestion(makePendingQuestion());
+      useAssistantStore.getState().enqueuePendingQuestion(makePendingQuestion());
       useAssistantStore.getState().setAnsweringQuestion(true);
     });
 
@@ -795,11 +856,11 @@ describe("useAssistantSession", () => {
       result.current.createNewSession();
     });
 
-    expect(useAssistantStore.getState().pendingQuestion).toBeNull();
+    expect(useAssistantStore.getState().pendingQuestions).toEqual([]);
     expect(useAssistantStore.getState().answeringQuestion).toBe(false);
 
     act(() => {
-      useAssistantStore.getState().setPendingQuestion(makePendingQuestion("q-2"));
+      useAssistantStore.getState().enqueuePendingQuestion(makePendingQuestion("q-2"));
       useAssistantStore.getState().setAnsweringQuestion(true);
     });
 
@@ -808,7 +869,7 @@ describe("useAssistantSession", () => {
     });
 
     expect(useAssistantStore.getState().currentSessionId).toBe("session-2");
-    expect(useAssistantStore.getState().pendingQuestion).toBeNull();
+    expect(useAssistantStore.getState().pendingQuestions).toEqual([]);
     expect(useAssistantStore.getState().answeringQuestion).toBe(false);
   });
 
@@ -1357,7 +1418,7 @@ describe("useAssistantSession", () => {
     });
     expect(useAssistantStore.getState().sessionStatus).toBe("running");
     expect(useAssistantStore.getState().turns.at(-1)?.content[0].text).toBe("自主回复");
-    expect(useAssistantStore.getState().pendingQuestion?.question_id).toBe("q-1");
+    expect(useAssistantStore.getState().pendingQuestions[0]?.question_id).toBe("q-1");
   });
 
   it.each([

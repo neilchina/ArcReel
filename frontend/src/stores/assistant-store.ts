@@ -72,7 +72,8 @@ interface AssistantState {
   sessionStatusDetail: string | null;
 
   // Questions
-  pendingQuestion: PendingQuestion | null;
+  /** 待答询问队列：按到达顺序排列，question_id 去重；队首是当前展示的那一条。 */
+  pendingQuestions: PendingQuestion[];
   answeringQuestion: boolean;
 
   // Skills
@@ -137,7 +138,12 @@ interface AssistantState {
   setStartupFailure: (failure: FailureObservation | null, origin?: StartupFailureOrigin) => void;
   setSessionStatus: (status: SessionStatus | null) => void;
   setSessionStatusDetail: (detail: string | null) => void;
-  setPendingQuestion: (question: PendingQuestion | null) => void;
+  /** 追加一条待答询问；question_id 已在队列中则忽略（实时事件与重连快照共用，幂等）。 */
+  enqueuePendingQuestion: (question: PendingQuestion) => void;
+  /** 只移除指定的一条待答询问，其余保留。 */
+  removePendingQuestion: (questionId: string) => void;
+  /** 清空整个待答询问队列（终态、切会话）。 */
+  clearPendingQuestions: () => void;
   setAnsweringQuestion: (answering: boolean) => void;
   setSkills: (skills: SkillInfo[]) => void;
   setSkillsLoading: (loading: boolean) => void;
@@ -219,7 +225,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     startupFailureOrigin: null,
     sessionStatus: null,
     sessionStatusDetail: null,
-    pendingQuestion: null,
+    pendingQuestions: [],
     answeringQuestion: false,
     skills: [],
     skillsLoading: false,
@@ -355,7 +361,19 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
       set({ startupFailure: failure, startupFailureOrigin: failure ? origin : null }),
     setSessionStatus: (status) => set({ sessionStatus: status }),
     setSessionStatusDetail: (detail) => set({ sessionStatusDetail: detail }),
-    setPendingQuestion: (question) => set({ pendingQuestion: question }),
+    enqueuePendingQuestion: (question) => {
+      const { pendingQuestions } = get();
+      if (pendingQuestions.some((q) => q.question_id === question.question_id)) return;
+      set({ pendingQuestions: [...pendingQuestions, question] });
+    },
+    removePendingQuestion: (questionId) => {
+      const { pendingQuestions } = get();
+      if (!pendingQuestions.some((q) => q.question_id === questionId)) return;
+      set({ pendingQuestions: pendingQuestions.filter((q) => q.question_id !== questionId) });
+    },
+    clearPendingQuestions: () => {
+      if (get().pendingQuestions.length > 0) set({ pendingQuestions: [] });
+    },
     setAnsweringQuestion: (answering) => set({ answeringQuestion: answering }),
     setSkills: (skills) => set({ skills }),
     setSkillsLoading: (loading) => set({ skillsLoading: loading }),

@@ -34,7 +34,9 @@ export function AgentCopilot() {
   const isDraftSession = useAssistantStore((s) => s.isDraftSession);
   const sending = useAssistantStore((s) => s.sending);
   const sessionStatus = useAssistantStore((s) => s.sessionStatus);
-  const pendingQuestion = useAssistantStore((s) => s.pendingQuestion);
+  // 队首是当前展示的询问，其余按到达顺序依次出现
+  const pendingQuestion = useAssistantStore((s) => s.pendingQuestions[0] ?? null);
+  const remainingQuestions = useAssistantStore((s) => Math.max(s.pendingQuestions.length - 1, 0));
   const answeringQuestion = useAssistantStore((s) => s.answeringQuestion);
   const error = useAssistantStore((s) => s.error);
   const startupFailureOrigin = useAssistantStore((s) => s.startupFailureOrigin);
@@ -133,7 +135,14 @@ export function AgentCopilot() {
           <h2 className="min-w-0 text-sm font-medium">
             <TruncatedText text={title} />
           </h2>
-          {(isRunning || sending) && (
+          {pendingQuestion ? (
+            <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+              <span aria-hidden className="size-1.5 rounded-full bg-warn" />
+              {pendingQuestion.request_kind === "file_access"
+                ? t("dashboard:agent_status_waiting_authorization")
+                : t("dashboard:agent_status_waiting_answer")}
+            </span>
+          ) : (isRunning || sending) && (
             <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
               <span aria-hidden className="size-1.5 animate-breath rounded-full bg-primary" />
               {t("dashboard:thinking")}
@@ -178,6 +187,7 @@ export function AgentCopilot() {
       {pendingQuestion && (
         <AgentQuestionnaire
           pendingQuestion={pendingQuestion}
+          remaining={remainingQuestions}
           answering={answeringQuestion}
           error={error}
           onSubmit={handleSubmitAnswers}

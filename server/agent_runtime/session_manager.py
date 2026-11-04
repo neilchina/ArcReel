@@ -2169,6 +2169,10 @@ class SessionManager:
     #: 文件访问授权弹窗里「批准 / 拒绝」两个选项的原文（前后端解析答复的同一真相源）。
     _FILE_ACCESS_APPROVE_LABEL: ClassVar[str] = "批准"
     _FILE_ACCESS_REJECT_LABEL: ClassVar[str] = "拒绝"
+    #: 文件访问授权登记后超过此秒数仍无人答复就打 warning（只观测，不自动拒绝或批准）。
+    #: 10 分钟：正常人工确认在几十秒内完成，超过它基本是用户不在场或漏看了询问
+    #: （并行询问曾被前端单槽吞掉，Agent 停滞 14 小时无任何痕迹）。
+    _FILE_ACCESS_PENDING_WARN_SECONDS: ClassVar[float] = 600.0
 
     async def _handle_file_access_request(
         self,
@@ -2222,19 +2226,57 @@ class SessionManager:
             "timestamp": utc_now_iso(),
         }
         pending = managed.add_pending_question(payload)
+        question_id = pending.question_id
+        display_path = payload["path"]
+        registered_at = time.monotonic()
+        logger.info(
+            "文件访问授权询问已登记 session_id=%s question_id=%s tool=%s path=%s pending=%d",
+            managed.session_id,
+            question_id,
+            tool_name,
+            display_path,
+            len(managed.pending_questions),
+        )
+
+        def _warn_still_pending() -> None:
+            logger.warning(
+                "文件访问授权询问长时间无人答复 session_id=%s question_id=%s tool=%s path=%s waited=%.0fs pending=%d",
+                managed.session_id,
+                question_id,
+                tool_name,
+                display_path,
+                time.monotonic() - registered_at,
+                len(managed.pending_questions),
+            )
+
+        warn_timer = asyncio.get_running_loop().call_later(self._FILE_ACCESS_PENDING_WARN_SECONDS, _warn_still_pending)
         managed.channel.broadcast(payload)
 
+        outcome = "cancelled"
         try:
-            answers = await pending.answer_future
-        except Exception as exc:
-            return PermissionResultDeny(
-                message=str(exc) or "session interrupted by user",
-                interrupt=True,
+            try:
+                answers = await pending.answer_future
+            except Exception as exc:
+                return PermissionResultDeny(
+                    message=str(exc) or "session interrupted by user",
+                    interrupt=True,
+                )
+            # 用户点「拒绝」→ Deny；其余（批准）→ 放行。答复的值是选项原文（见 options label）。
+            if self._FILE_ACCESS_REJECT_LABEL in answers.values():
+                outcome = "rejected"
+                return PermissionResultDeny(message=f"用户拒绝了本次文件访问：{reason or tool_name}")
+            outcome = "approved"
+            return PermissionResultAllow(updated_input=input_data)
+        finally:
+            warn_timer.cancel()
+            logger.info(
+                "文件访问授权询问已结算 session_id=%s question_id=%s path=%s outcome=%s waited=%.1fs",
+                managed.session_id,
+                question_id,
+                display_path,
+                outcome,
+                time.monotonic() - registered_at,
             )
-        # 用户点「拒绝」→ Deny；其余（批准）→ 放行。答复的值是选项原文（见 options label）。
-        if self._FILE_ACCESS_REJECT_LABEL in answers.values():
-            return PermissionResultDeny(message=f"用户拒绝了本次文件访问：{reason or tool_name}")
-        return PermissionResultAllow(updated_input=input_data)
 
     async def _build_can_use_tool_callback(
         self,

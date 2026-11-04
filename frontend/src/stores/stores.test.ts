@@ -199,7 +199,7 @@ describe("stores", () => {
     assistant.setError("err");
     assistant.setSessionStatus("running");
     assistant.setSessionStatusDetail("busy");
-    assistant.setPendingQuestion({
+    assistant.enqueuePendingQuestion({
       question_id: "q1",
       questions: [{ question: "?", options: [{ label: "a", description: "b" }], multiSelect: false }],
     });

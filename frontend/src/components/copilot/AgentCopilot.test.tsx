@@ -138,7 +138,7 @@ describe("AgentCopilot", () => {
   describe("questions", () => {
     it("takes the composer's place, answers a single and a multi choice by number keys, then submits", async () => {
       const user = userEvent.setup();
-      useAssistantStore.setState({ currentSessionId: "session-1", sessionStatus: "running", pendingQuestion: makePendingQuestion() });
+      useAssistantStore.setState({ currentSessionId: "session-1", sessionStatus: "running", pendingQuestions: [makePendingQuestion()] });
       render(<AgentCopilot />);
 
       expect(screen.queryByRole("combobox", { name: "Agent 输入" })).not.toBeInTheDocument();
@@ -165,11 +165,41 @@ describe("AgentCopilot", () => {
       });
     });
 
+    it("shows file-access requests one at a time with the remaining count", () => {
+      const fileAccess = (id: string, path: string): PendingQuestion => ({
+        question_id: id,
+        request_kind: "file_access",
+        path,
+        reason: "需要授权：项目根外的 host 路径访问请求",
+        title: null,
+        questions: [
+          {
+            header: "文件访问授权",
+            question: "是否允许本次 Read 访问？",
+            multiSelect: false,
+            options: [
+              { label: "批准", description: "放行本次访问" },
+              { label: "拒绝", description: "拒绝本次访问" },
+            ],
+          },
+        ],
+      });
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        pendingQuestions: [fileAccess("fa-1", "/tmp/a.jpg"), fileAccess("fa-2", "/tmp/b.jpg"), fileAccess("fa-3", "/tmp/c.jpg")],
+      });
+      render(<AgentCopilot />);
+      expect(screen.getByText("/tmp/a.jpg")).toBeInTheDocument();
+      expect(screen.queryByText("/tmp/b.jpg")).not.toBeInTheDocument();
+      expect(screen.getByText("还剩 2 条")).toBeInTheDocument();
+      expect(screen.getByText("等待你的授权")).toBeInTheDocument();
+    });
     it("sends a free-form answer in place of the agent's own 「其他」 option", async () => {
       const user = userEvent.setup();
       useAssistantStore.setState({
         currentSessionId: "session-1",
-        pendingQuestion: { question_id: "q-2", questions: [makePendingQuestion().questions[0]] },
+        pendingQuestions: [{ question_id: "q-2", questions: [makePendingQuestion().questions[0]] }],
       });
       render(<AgentCopilot />);
 
@@ -221,7 +251,7 @@ describe("AgentCopilot", () => {
           },
         ],
       };
-      useAssistantStore.setState({ currentSessionId: "session-1", sessionStatus: "running", pendingQuestion: fileAccess });
+      useAssistantStore.setState({ currentSessionId: "session-1", sessionStatus: "running", pendingQuestions: [fileAccess] });
       render(<AgentCopilot />);
 
       // 回显真实 resolved 路径与原因
@@ -644,7 +674,7 @@ describe("AgentCopilot", () => {
       useAssistantStore.setState({
         currentSessionId: "session-1",
         sessionStatus: "running",
-        pendingQuestion: makePendingQuestion(),
+        pendingQuestions: [makePendingQuestion()],
         queuedMessages: [{ id: "q-1", content: [{ type: "text", text: "第 3 镜改成黄昏" }], state: "queued" }],
       });
       render(<AgentCopilot />);
