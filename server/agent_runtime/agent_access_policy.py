@@ -190,6 +190,10 @@ class AgentAccessPolicy:
         "SECRET_KEY",
         "CREDENTIAL",
         "CLIENT_SECRET",
+        # AUTH_PASSWORD（管理员登录密码）不含上面任何词；Bash 内拿它换 JWT 即得管理员身份。
+        "PASSWORD",
+        "PASSWD",
+        "PRIVATE_KEY",
     )
 
     # 文件访问控制走 PreToolUse hook（权限链第 1 步，对所有工具调用生效）；

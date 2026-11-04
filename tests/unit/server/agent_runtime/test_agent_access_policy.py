@@ -714,6 +714,25 @@ def test_env_scrub_collects_pattern_matched_keys(monkeypatch: pytest.MonkeyPatch
         AgentAccessPolicy._env_scrub_wrap_prefix.cache_clear()
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["AUTH_PASSWORD", "DB_PASSWORD", "LEGACY_PASSWD", "SSH_PRIVATE_KEY", "AUTH_TOKEN_SECRET"],
+)
+def test_env_scrub_covers_admin_password_and_common_secret_names(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    """AUTH_PASSWORD 可在 Bash 内换取管理员 JWT，必须被剥离；常见密钥类命名同样命中。"""
+    monkeypatch.setenv(name, "s3cret")
+    monkeypatch.setenv("XDG_SESSION_ID", "1")  # 过宽的 SESSION 不入清单，不应命中
+    AgentAccessPolicy._collect_env_keys_to_scrub.cache_clear()
+    AgentAccessPolicy._env_scrub_wrap_prefix.cache_clear()
+    try:
+        keys = AgentAccessPolicy._collect_env_keys_to_scrub()
+        assert name in keys
+        assert "XDG_SESSION_ID" not in keys
+    finally:
+        AgentAccessPolicy._collect_env_keys_to_scrub.cache_clear()
+        AgentAccessPolicy._env_scrub_wrap_prefix.cache_clear()
+
+
 def test_wrap_bash_command_unsets_provider_keys(tmp_path: Path) -> None:
     """POSIX（sandbox 启用）：command 包装成 ``env -u ANTHROPIC_* sh -c '<orig>'``。"""
     from lib.config.env_keys import ANTHROPIC_ENV_KEYS
