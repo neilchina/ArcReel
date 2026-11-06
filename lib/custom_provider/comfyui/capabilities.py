@@ -19,6 +19,7 @@ ComfyUI 端点的定义里没有 ``capabilities`` 节（``docs/adr/0082``）：�
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -41,6 +42,13 @@ from .inference_rules import AudioTrackSource, load_inference_rules
 
 #: 决定「有没有图输入」的三项语义键。三项全空即这份 workflow 不吃任何图片素材。
 _IMAGE_BINDING_KEYS = ("start_image", "end_image", "reference_images")
+
+#: HONGYU 渠道的 MiniMax H3 参考生视频系列（I1~I9）端点名特征：``HONGYU[-_]Mini?maxH3``。
+#: 端点名大小写与拼写不统一（``MinimaxH3`` / ``MinmaxH3``），故只锚定 ``HONGYU`` + ``Mini?maxH3``；
+#: 带连字符的 ``MiniMax-H3``（MOTION/CONTEXT 变体）因 H3 前多一个 ``-`` 不会命中。
+#: 该渠道实际支持 1-15 秒全量整秒，而 workflow 里 duration 入口写的是固定字面 16（只是默认片长，
+#: 并非档位上限）。按端点名特判，档位给 1-15 全量，不走字面 16 这一档。
+_HONGYU_MINIMAX_H3_NAME = re.compile(r"HONGYU[-_]Mini?maxH3", re.I)
 
 #: 音轨的两种结论，取值与 :class:`arcreel_market_core.video_backend_contract.VideoAudioMode` 的成员值逐字相同。
 #: 永远不会是 ``controllable``：ComfyUI 侧没有可下发的音轨开关。
@@ -419,7 +427,15 @@ def default_supported_durations(definition: Mapping[str, Any]) -> list[int]:
     两条线都推不出来时才是空集——``frames`` 未绑、``duration`` 入口也不存在或读不出字面值。空集
     在这条通道上是合法状态而非缺陷（见 ``lib/config/resolver.py`` 对 ``kind: comfyui`` 的分叉）：
     时长这一维不由 ArcReel 驱动，界面禁用时长控件、提交时不下发时长，让 workflow 出它自己那一档。
+
+    HONGYU-MinimaxH3 系列（I1~I9）例外：渠道实际支持 1-15 秒全量整秒，workflow 里 duration 入口的
+    字面 16 只是默认片长而非档位上限，按端点名特判直接给 1-15 全量，不走下面两条推导线。
     """
+    meta = definition.get("meta")
+    if isinstance(meta, Mapping):
+        name = meta.get("name")
+        if isinstance(name, str) and _HONGYU_MINIMAX_H3_NAME.search(name):
+            return list(range(1, 16))
     native = native_duration(definition)
     if native is not None and native > 0:
         return [native]

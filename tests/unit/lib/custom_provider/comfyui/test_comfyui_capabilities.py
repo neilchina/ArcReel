@@ -581,3 +581,35 @@ class TestDurationKeyTargetsAndTheNativeLiteral:
         assert duration_key_targets(definition["workflow"], definition["bindings"]) == ()
         assert native_duration_literal(definition) is None
         assert duration_is_fixed(definition) is True
+
+
+class TestHongyuMinimaxH3OverridesTheNativeTier:
+    """HONGYU-MinimaxH3（I1~I9）渠道支持 1-15 秒全量整秒：按端点名特判，不走 workflow 字面档位。"""
+
+    @staticmethod
+    def _with_name(name: str) -> dict[str, Any]:
+        """字面档位 16 的 duration 绑定 + 指定端点名，用来对比特判是否接管。"""
+        definition = comfyui_endpoint_definition()
+        definition["meta"]["name"] = name
+        definition["workflow"]["9"]["inputs"]["length"] = 16
+        definition["bindings"]["duration"] = [{"node": "9", "input": "length", "class_type": "SaveVideo"}]
+        return definition
+
+    def test_the_minimaxh3_named_endpoint_reads_the_full_one_to_fifteen_range(self):
+        assert default_supported_durations(self._with_name("HONGYU-MinimaxH3-I9-A3-First_shot-AutoPrompt")) == list(
+            range(1, 16)
+        )
+
+    def test_the_minmaxh3_misspelling_also_reads_the_full_range(self):
+        assert default_supported_durations(self._with_name("HONGYU-MinmaxH3-I3-A3-First-frome-AutoPrompt")) == list(
+            range(1, 16)
+        )
+
+    def test_a_lowercase_underscore_name_variant_also_matches(self):
+        assert default_supported_durations(self._with_name("hongyu_minimaxh3-i1-a1")) == list(range(1, 16))
+
+    def test_the_hyphenated_motion_variant_keeps_its_literal_tier(self):
+        assert default_supported_durations(self._with_name("HONGYU_MiniMax-H3+MOTION+CONTEXT-T2V")) == [16]
+
+    def test_an_unrelated_name_keeps_its_literal_tier(self):
+        assert default_supported_durations(self._with_name("示例 ComfyUI 端点")) == [16]
