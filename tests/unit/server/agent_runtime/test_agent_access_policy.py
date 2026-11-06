@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -568,6 +569,22 @@ def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> N
     assert str(cwd / "project.json") in settings["filesystem"]["denyWrite"]
 
 
+def test_build_sandbox_settings_allows_write_to_system_temp_dirs(tmp_path: Path) -> None:
+    """Agent 经 Bash 把中间产物（抽帧 / 拼图 / tile）落到系统临时目录：内核沙箱文件写默认拒绝、
+    仅白名单子树可写，SDK CLI 自身只预放行 per-user TMPDIR 与 ``/tmp/claude``——通用 ``/tmp``
+    （含 macOS ``/private/tmp`` 符号链接形态）与进程 ``tempfile.gettempdir()`` 须显式放行，否则撞 EPERM。"""
+    policy = _make_policy(tmp_path, sandbox_enabled=True)
+    cwd = _projects_dir(policy) / "demo"
+    allow_write = policy.build_sandbox_settings(cwd)["filesystem"]["allowWrite"]
+
+    assert "/tmp" in allow_write
+    assert "/private/tmp" in allow_write
+    tmpdir = Path(tempfile.gettempdir())
+    assert str(tmpdir) in allow_write or str(tmpdir.resolve()) in allow_write
+    # 清单无重复
+    assert len(allow_write) == len(set(allow_write))
+
+
 def test_build_sandbox_settings_in_docker_enables_weaker_nested(tmp_path: Path) -> None:
     """in_docker 透传到 enableWeakerNestedSandbox；非 Docker 默认 False。"""
     cwd = _projects_dir(_make_policy(tmp_path)) / "demo"
@@ -918,15 +935,17 @@ def test_invalid_user_id_does_not_widen_memory(policy: AgentAccessPolicy, bad_us
 def test_build_sandbox_settings_gives_bash_no_access_to_user_memory(tmp_path: Path, in_docker: bool) -> None:
     """内核沙箱层不给用户记忆目录开任何口子，Bash 读写都被拒，两个平台的编译结果相同。
 
-    bwrap 把 ``allowWrite`` 编成可写绑定挂载，会盖掉 ``users/`` 的 ``denyRead``；Seatbelt
-    则读拒写放。内置 Read/Write/Edit/Glob/Grep 不经内核沙箱，由 hook 层放行记忆目录。
+    ``allowWrite`` 现仅放行系统临时目录（见 ``_build_temp_allow_write_abs_paths``）：其中任何一项
+    都不得波及受保护的用户记忆目录——bwrap 把可写目录绑定挂载回来会盖掉 ``users/`` 的 ``denyRead``，
+    Seatbelt 则读拒写放。内置 Read/Write/Edit/Glob/Grep 不经内核沙箱，由 hook 层放行记忆目录。
     """
     policy = _make_policy(tmp_path, in_docker=in_docker)
     cwd = _cwd(policy)
     layout = DataRootLayout(policy.data_root)
     filesystem = policy.build_sandbox_settings(cwd)["filesystem"]
 
-    assert "allowWrite" not in filesystem
+    # 临时目录被 allowWrite 放行，但其中任何一项都不得落在用户记忆目录之内
+    assert not any(Path(p).is_relative_to(layout.users_dir) for p in filesystem.get("allowWrite", []))
     assert str(layout.users_dir) in filesystem["denyRead"]
     # 内置工具照常读写用户记忆
     memory_file = layout.user_memory_dir(_USER_ID) / "MEMORY.md"

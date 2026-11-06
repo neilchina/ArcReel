@@ -330,11 +330,15 @@ class AgentAccessPolicy:
           ``patch_project`` / ``upload_source`` / 参考拆分的取回与晋升等，跑在主进程不受 sandbox 约束），
           堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对 sandbox 内所有子进程生效。
           sandbox 内已无合法 Bash 写这几类路径，故不误伤。
-        - 不写 ``filesystem.allowWrite``：用户记忆目录（``<数据根>/users/<user_id>/memory/``）
-          对 Bash 读写都关闭。内置 Read/Write/Edit/Glob/Grep 在主进程执行、不经内核沙箱，
-          由 hook 层放行记忆目录，用不着内核层放行；而给它加 ``allowWrite`` 会让两个平台各漏
-          一边：bwrap 把可写目录绑定挂载回来，盖掉 ``users/`` 的 ``denyRead``，Bash 可读可写；
-          Seatbelt 读拒写放，Bash 能盲写。项目记忆在 cwd 内，Bash 照常读写。
+        - ``filesystem.allowWrite``：仅放行系统临时目录（进程 ``tempfile.gettempdir()`` 与通用
+          ``/tmp`` / ``/private/tmp``，见 ``_build_temp_allow_write_abs_paths``）。内核沙箱文件写
+          默认拒绝、仅白名单子树可写，SDK CLI 自身只预放行 per-user TMPDIR 与 ``/tmp/claude``——
+          Agent 经 Bash 把中间产物（抽帧、拼图等）落到 ``/tmp`` 会撞 EPERM，故显式放行通用临时
+          目录。临时目录本就可读，放行写不引入「读拒写放」的单边泄漏。刻意**不**放行用户记忆目录
+          （``<数据根>/users/<user_id>/memory/``）：给它加 ``allowWrite`` 会让两个平台各漏一边——
+          bwrap 把可写目录绑定挂载回来盖掉 ``users/`` 的 ``denyRead``，Seatbelt 读拒写放；记忆读写
+          走主进程内置 Read/Write/Edit（不经内核沙箱），由 hook 层放行，用不着内核层放行。
+          项目记忆在 cwd 内，Bash 照常读写。
         - ``filesystem.denyRead`` 另含数据根下 ``projects/`` 以外的全部顶层条目（见
           ``_build_data_root_deny_read_abs_paths``）：hook 层的数据根默认拒只管内置 Read/Glob/Grep，
           Bash 不经该 hook（ADR 0026）。
@@ -351,6 +355,7 @@ class AgentAccessPolicy:
         filesystem: dict[str, Any] = {
             "denyRead": self._build_sensitive_abs_paths() + self._build_data_root_deny_read_abs_paths(),
             "denyWrite": self._build_protected_write_abs_paths(project_cwd),
+            "allowWrite": self._build_temp_allow_write_abs_paths(),
         }
         return {
             "enabled": True,
@@ -439,6 +444,26 @@ class AgentAccessPolicy:
                     target_s = str(base / subpath)
                     if target_s not in paths:
                         paths.append(target_s)
+        return paths
+
+    @staticmethod
+    def _build_temp_allow_write_abs_paths() -> list[str]:
+        """Bash 子进程写放行的系统临时目录清单（绝对路径）。
+
+        内核沙箱对文件写是「默认拒绝、仅放行白名单子树」：macOS Seatbelt 以 ``(deny default)``
+        打底再逐子树 ``allow file-write*``，Linux bwrap 只把白名单目录绑定为可写。SDK CLI 自身
+        只预放行 per-user ``TMPDIR``（macOS 的 ``/var/folders/.../T``）与 ``/tmp/claude``，通用
+        ``/tmp`` 不在其列——Agent 经 Bash 把中间产物（抽帧、拼图、tile 等）落到 ``/tmp`` 会撞
+        EPERM。这里把进程临时目录与通用 ``/tmp``（含 macOS ``/private/tmp`` 符号链接形态）一并
+        放行。临时目录本就可读，放行写不引入「读拒写放」的单边泄漏；不存在的形态（如 Linux 上的
+        ``/private/tmp``）由 CLI 跳过，与 SDK 自身无条件登记的 ``/private/tmp/claude`` 同口径。
+        """
+        paths: list[str] = []
+        for seed in (Path(tempfile.gettempdir()), Path("/tmp"), Path("/private/tmp")):  # noqa: S108 -- 系统临时目录字面量，仅入沙箱 allowWrite 白名单
+            for form in (seed, seed.resolve(strict=False)):
+                form_s = str(form)
+                if form_s not in paths:
+                    paths.append(form_s)
         return paths
 
     def _build_sensitive_abs_paths(self) -> list[str]:
