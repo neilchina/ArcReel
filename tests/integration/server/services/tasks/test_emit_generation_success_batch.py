@@ -4,7 +4,7 @@ import pytest
 
 from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE
 from server.services.tasks import generation_tasks
-from tests.fakes import use_project_manager
+from tests.fakes import use_emit_project_change_batch, use_project_manager
 from tests.integration.server.services.tasks.generation_tasks_support import (
     _FakePM,
 )
@@ -14,9 +14,8 @@ class TestGenerationTasks:
     def test_emit_success_batch_includes_fingerprints(self, monkeypatch, tmp_path):
         """生成成功事件应携带 asset_fingerprints"""
         captured = []
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: captured.append(changes),
         )
 
@@ -45,9 +44,8 @@ class TestGenerationTasks:
     def test_emit_success_batch_includes_derivative_sheet_fingerprint(self, monkeypatch, tmp_path):
         """衍生资产图的完成事件带上那张图的指纹：前端据此 cache-bust，浮层不停在旧图上。"""
         captured = []
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: captured.append(changes),
         )
 
@@ -91,9 +89,8 @@ class TestGenerationTasks:
     ):
         """完成事件携带稳定 label_key 与参数，界面据此按用户语言成文；label 只是默认语言兜底。"""
         captured = []
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: captured.append(changes),
         )
 
@@ -143,9 +140,8 @@ class TestGenerationTasks:
         """storyboard/video 任务完成通知与分镜级事件同口径：实体类型按项目剧本骨架解析，
         三种分镜骨架的中文名词统一为「分镜」。"""
         captured = []
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: captured.append(changes),
         )
 
@@ -174,9 +170,8 @@ class TestGenerationTasks:
         （而非仅本侧认识的 "reference_video_unit"），分组标题才能落「视频单元」而非「内容」
         兜底；条目文案统一使用「视频单元」，不随骨架名词改动。"""
         captured = []
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: captured.append(changes),
         )
 
@@ -206,9 +201,8 @@ class TestGenerationTasks:
         content_mode==ad→shots，与该任务实际对应 video_unit 资源不符，故需固定解析，
         不随骨架判别漂到 "shot"。"""
         captured = []
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: captured.append(changes),
         )
 
@@ -239,9 +233,8 @@ class TestGenerationTasks:
     def test_emit_success_batch_reference_video_tts_entity_type_not_shot(self, monkeypatch, tmp_path):
         """TTS 任务与视频任务共用项目生成模式，ad 参考生视频的混合骨架不能把 unit 事件分到 shot。"""
         captured = []
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: captured.append(changes),
         )
 
@@ -273,9 +266,8 @@ class TestGenerationTasks:
     def test_emit_success_batch_falls_back_to_segments_when_script_load_fails(self, monkeypatch, tmp_path):
         """骨架判定拿不到剧本（脚本缺失/损坏）时兜底 segments/「分镜」，不让通知发送中断。"""
         captured = []
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: captured.append(changes),
         )
 
@@ -305,9 +297,8 @@ class TestGenerationTasks:
         """剧本文件内容损坏成非 dict（如顶层数组）时兜底 segments/「分镜」，不让
         resolve_script_kind 内部的 .get() 调用抛 AttributeError 中断通知发送。"""
         captured = []
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: captured.append(changes),
         )
 
@@ -333,9 +324,8 @@ class TestGenerationTasks:
         """骨架驱动的完成事件须挂 script_file 与 episode（供 episode 作用域消费方使用）——
         锁死这条挂载，防将来改动 emit 时静默丢字段。"""
         captured = []
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: captured.append(changes),
         )
 

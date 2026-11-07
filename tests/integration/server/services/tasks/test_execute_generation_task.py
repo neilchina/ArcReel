@@ -9,7 +9,12 @@ from lib.generation.generation_queue import DispatchProviderChanged
 from lib.infra.api_errors import BadRequestError
 from lib.script.storyboard_sequence import StoryboardImageBindingRequired
 from server.services.tasks import generation_tasks
-from tests.fakes import use_generation_context, use_project_manager, use_video_thumbnail_extractor
+from tests.fakes import (
+    use_emit_project_change_batch,
+    use_generation_context,
+    use_project_manager,
+    use_video_thumbnail_extractor,
+)
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -33,9 +38,8 @@ class TestGenerationTasks:
         resolve_ctx = fake_resolve_ctx(fake_generator)
         use_project_manager(monkeypatch, fake_pm)
         use_generation_context(monkeypatch, resolve_ctx)
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: emitted_batches.append(
                 {
                     "project_name": project_name,
@@ -190,9 +194,8 @@ class TestGenerationTasks:
         emitted: list[dict] = []
         use_project_manager(monkeypatch, _FakePM(prepare_files(tmp_path)))
         monkeypatch.setitem(generation_tasks._TASK_EXECUTORS, "video", _executor)
-        monkeypatch.setattr(
-            generation_tasks,
-            "emit_project_change_batch",
+        use_emit_project_change_batch(
+            monkeypatch,
             lambda project_name, changes: emitted.append({"project_name": project_name, "changes": list(changes)}),
         )
 
@@ -230,7 +233,7 @@ class TestGenerationTasks:
 
         use_project_manager(monkeypatch, fake_pm)
         use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", _fail_emit)
+        use_emit_project_change_batch(monkeypatch, _fail_emit)
         task = {
             "task_id": "storyboard-task",
             "task_type": "storyboard",

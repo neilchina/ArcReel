@@ -1124,7 +1124,7 @@ class TestGenerateRouter:
             assert task_type == "character_derivative"
             return "vertex/deri-model"
 
-        monkeypatch.setattr(generate, "_require_i2i_image_provider_configured", _fake_i2i_default)
+        monkeypatch.setattr(generate, "require_i2i_image_provider_configured", _fake_i2i_default)
         with client:
             resp = client.post("/api/v1/projects/demo/generate/character/Alice/derivatives/正脸")
 
@@ -1140,7 +1140,7 @@ class TestGenerateRouter:
         async def _fake_i2i_default(project, *, task_type=None):
             return "vertex/deri-model"
 
-        monkeypatch.setattr(generate, "_require_i2i_image_provider_configured", _fake_i2i_default)
+        monkeypatch.setattr(generate, "require_i2i_image_provider_configured", _fake_i2i_default)
         with client:
             resp = client.post(
                 "/api/v1/projects/demo/generate/character/Alice/derivatives/正脸",
@@ -1168,7 +1168,7 @@ class TestGenerateRouter:
         async def _fake_i2i_default(project, *, task_type=None):
             return "vertex/deri-model"
 
-        monkeypatch.setattr(generate, "_require_i2i_image_provider_configured", _fake_i2i_default)
+        monkeypatch.setattr(generate, "require_i2i_image_provider_configured", _fake_i2i_default)
         with client:
             rejected = client.post("/api/v1/projects/demo/generate/character/Bob/derivatives/礼服")
             assert rejected.status_code == 400, rejected.text

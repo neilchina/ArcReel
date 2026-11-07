@@ -32,7 +32,13 @@ from lib.speech.narration_delivery import (
 from lib.speech.speech_composition import admit_script_unit
 from server.services.tasks import generation_tasks
 from tests.factories import make_video_request_facts, wav_bytes
-from tests.fakes import use_generation_context, use_project_manager, use_video_thumbnail_extractor, write_backend_output
+from tests.fakes import (
+    use_emit_project_change_batch,
+    use_generation_context,
+    use_project_manager,
+    use_video_thumbnail_extractor,
+    write_backend_output,
+)
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -349,10 +355,10 @@ class TestGenerationTasks:
         seed_current_storyboard(fake_pm)
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
+        use_emit_project_change_batch(monkeypatch, lambda *a, **kw: None)
 
         await generation_tasks.execute_video_task(
             "demo",

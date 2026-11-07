@@ -71,7 +71,7 @@ async def _i2i_unavailable_problem(
     project: dict[str, Any], *, config_resolver: ConfigResolver
 ) -> GenerationProblem | None:
     """项目 i2i 槽解析不出可用供应商时返回阻塞问题，可用时返回 None——与 HTTP 端点入队前 fail-fast
-    同一判断点（见 ``server/routers/generate.py::_require_i2i_image_provider_configured``），
+    同一判断点（见 ``server/routers/_validators.py::require_i2i_image_provider_configured``），
     批量编辑只需要一次项目级判断，不像端点那样需要拿到 provider_id 传给入队。
     引用的模型已不在供应商清单中时，问题带「重新选择模型」指引，而非「换支持 i2i 的供应商」。
     """

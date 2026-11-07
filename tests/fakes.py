@@ -1149,6 +1149,15 @@ def use_generation_context(monkeypatch, resolve: Callable[..., Any]) -> None:
     monkeypatch.setattr("server.services.tasks.reference_video_tasks.resolve_generation_context", resolve)
 
 
+def use_emit_project_change_batch(monkeypatch, emit: Callable[..., Any]) -> None:
+    """生成任务模块里广播项目变更批次的 ``emit_project_change_batch`` 换成 *emit*。
+
+    ``generation_tasks`` 在模块顶部绑定了这个广播函数，用例按同一形状换掉它——既可用来吞掉广播
+    （``lambda *a, **kw: None``），也可用来记录每次广播的 ``project_name`` 与 ``changes``。
+    """
+    monkeypatch.setattr("server.services.tasks.generation_tasks.emit_project_change_batch", emit)
+
+
 def use_video_thumbnail_extractor(monkeypatch, extract: Callable[..., Any]) -> None:
     """视频任务与参考视频任务的缩略图抽帧都换成 *extract*，用例不调真实 ffmpeg。"""
     monkeypatch.setattr("server.services.tasks.generation_tasks.extract_video_thumbnail", extract)

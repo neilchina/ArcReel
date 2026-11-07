@@ -95,6 +95,34 @@ async def require_audio_switch_supported(project: dict, generation_type: VideoGe
     raise BadRequestError("video_audio_switch_not_supported", provider=provider_id, model=model_id)
 
 
+async def require_i2i_image_provider_configured(project: dict, *, task_type: str | None = None) -> str:
+    """项目 i2i 槽解析不出可用供应商时直接 400，不创建任务。
+
+    图片编辑必然 i2i 且入队即知（唯一例外，见 ``docs/adr/0001`` 与 GLOSSARY.md「图片编辑」），
+    故解析前置到入队；执行层 ``generate_image_async`` 的能力 gating 保留兜底。
+    返回解析出的 provider_id，入队时直接复用（限流池路由按 i2i 槽精确记账）。
+
+    ``task_type`` 与执行层同参：资产图任务传自身 task_type，i2i 槽据此解析该资产类别的默认端点
+    （``IMAGE_ASSET_SLOT_KEYS``，docs/adr/0098）。入队前判定必须与执行层 ``resolve_generation_context``
+    走同一套骨架，否则项目默认端点是纯 t2i 而衍生资产槽位是 i2i 时，入队前误报无 i2i 端点。
+
+    与同模块的其它 ``require_*`` 守卫同为端点显式依赖：生成 router 从本模块导入后按既有口径调用，
+    用例覆盖导入边界上的这一名字即可注入替身，不必 patch 被测 module 自身定义的私有符号。
+    """
+    from lib.db import async_session_factory
+
+    try:
+        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(
+            project, None, generation_type="i2i", task_type=task_type
+        )
+    except ModelNotInCatalogError:
+        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        raise
+    except ValueError as exc:
+        raise BadRequestError("image_edit_i2i_unavailable") from exc
+    return resolved.provider_id
+
+
 # backend 字段名 → 期望 media_type，驱动 validate_backend_value 的档位/模型能力匹配校验。
 # 未登记的字段名视为不做该项校验（新增字段忘记登记时静默放行，而非误报）。
 _FIELD_MEDIA_TYPES: dict[str, str] = {
