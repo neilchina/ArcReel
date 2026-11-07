@@ -67,7 +67,16 @@ class _FakeConfigResolver:
 def _client(monkeypatch, pm, *, queue: _FakeQueue | None = None) -> TestClient:
     for module in (characters, generate, versions):
         monkeypatch.setattr(module, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generate, "ConfigResolver", _FakeConfigResolver)
+    # i2i 槽解析守卫 require_i2i_image_provider_configured（迁入 server.routers._validators，generate 从
+    # 导入边界引用）。经守卫自带的 resolver_factory 注入点喂入假解析器：在 generate 的导入名上包一层，
+    # 把 _FakeConfigResolver 作为工厂传给真守卫——断言仍落在守卫内部那次 resolve_image_backend 的入参上，
+    # 不 patch 任何私有符号、也不替换守卫逻辑本身。
+    real_guard = generate.require_i2i_image_provider_configured
+
+    async def _guard_with_fake_resolver(project, *, task_type=None):
+        return await real_guard(project, task_type=task_type, resolver_factory=_FakeConfigResolver)
+
+    monkeypatch.setattr(generate, "require_i2i_image_provider_configured", _guard_with_fake_resolver)
     use_generation_queue(monkeypatch, queue or _FakeQueue())
     app = FastAPI()
     register_error_handlers(app)

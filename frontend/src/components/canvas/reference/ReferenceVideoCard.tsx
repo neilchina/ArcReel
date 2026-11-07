@@ -494,8 +494,7 @@ export function ReferenceVideoCard({
         </div>
 
         {hasSourceText && (
-          // 可聚焦 separator：指针与键盘是它仅有的交互方式，非交互角色误报，整体豁免。
-          /* eslint-disable jsx-a11y/no-noninteractive-element-interactions */
+          /* eslint-disable jsx-a11y/no-noninteractive-element-interactions -- 可聚焦 separator：指针与键盘是它仅有的交互方式，非交互角色误报，整体豁免。 */
           <div
             role="separator"
             aria-orientation="horizontal"

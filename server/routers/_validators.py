@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 
@@ -95,7 +98,12 @@ async def require_audio_switch_supported(project: dict, generation_type: VideoGe
     raise BadRequestError("video_audio_switch_not_supported", provider=provider_id, model=model_id)
 
 
-async def require_i2i_image_provider_configured(project: dict, *, task_type: str | None = None) -> str:
+async def require_i2i_image_provider_configured(
+    project: dict,
+    *,
+    task_type: str | None = None,
+    resolver_factory: Callable[[Any], ConfigResolver] = ConfigResolver,
+) -> str:
     """项目 i2i 槽解析不出可用供应商时直接 400，不创建任务。
 
     图片编辑必然 i2i 且入队即知（唯一例外，见 ``docs/adr/0001`` 与 GLOSSARY.md「图片编辑」），
@@ -106,13 +114,13 @@ async def require_i2i_image_provider_configured(project: dict, *, task_type: str
     （``IMAGE_ASSET_SLOT_KEYS``，docs/adr/0098）。入队前判定必须与执行层 ``resolve_generation_context``
     走同一套骨架，否则项目默认端点是纯 t2i 而衍生资产槽位是 i2i 时，入队前误报无 i2i 端点。
 
-    与同模块的其它 ``require_*`` 守卫同为端点显式依赖：生成 router 从本模块导入后按既有口径调用，
-    用例覆盖导入边界上的这一名字即可注入替身，不必 patch 被测 module 自身定义的私有符号。
+    ``resolver_factory`` 是显式注入点：生产调用方不传，用默认的 ``ConfigResolver``；用例传入假工厂
+    注入替身解析器，无需 patch 本（私有）模块里的 ``ConfigResolver`` 名字。
     """
     from lib.db import async_session_factory
 
     try:
-        resolved = await ConfigResolver(async_session_factory).resolve_image_backend(
+        resolved = await resolver_factory(async_session_factory).resolve_image_backend(
             project, None, generation_type="i2i", task_type=task_type
         )
     except ModelNotInCatalogError:
